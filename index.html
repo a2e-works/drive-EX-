@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ドライブ整理ツール</title>
+<title>Googleドライブ整理ツール</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root { --bd:#d0d7de; --bg:#f6f8fa; --ac:#1a73e8; --dg:#c5221f; --ok:#188038; --tx:#202124; --sub:#5f6368; --base:#fff; --sel:#e8f0fe; --line:#eceff1; }
@@ -31,6 +31,7 @@
   /* ヘッダー */
   header.top { flex:none; display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--base); border-bottom:1px solid var(--bd); }
   header.top .sp { flex:1; }
+  #camPrev { display:block; max-width:100%; max-height:45vh; margin:8px auto; border-radius:6px; border:1px solid var(--bd); }
   .acct { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
   #setup { flex:none; background:var(--base); border-bottom:1px solid var(--bd); padding:8px 14px; }
   #setup:not([open]) { display:none; }
@@ -133,6 +134,8 @@
     #resultArea { max-height:none; }
     .tablewrap { max-height:75vh; }
     header.top h1 { font-size:14px; }
+    header.top { flex-wrap:wrap; }
+    #btnCam { order:3; flex:1 1 100%; padding:10px; font-size:15px; }
     dialog .grid { grid-template-columns:1fr; }
   }
 </style>
@@ -141,7 +144,8 @@
 
 <header class="top">
   <button class="icon" id="btnSide" title="左の欄を隠す／出す">☰</button>
-  <h1>ドライブ整理ツール</h1>
+  <h1>Googleドライブ整理ツール</h1>
+  <button class="pri" id="btnCam" title="スマホのカメラで撮って、ツリーで選んだフォルダへアップロード">📷 撮影してアップ</button>
   <span class="sp"></span>
   <div class="acct">
     <select id="acctSel" title="アカウント切替"></select>
@@ -158,10 +162,16 @@
     <input type="text" id="clientId" size="60" placeholder="xxxxxxxx.apps.googleusercontent.com">
     <button id="btnSaveClient">保存</button>
   </div>
+  <div class="row" style="margin:8px 0">
+    <strong style="font-size:13px">撮影ボタンの動作</strong>
+    <label><input type="radio" name="camMode" value="camera" checked>このツールのカメラで撮ってアップ</label>
+    <label><input type="radio" name="camMode" value="drive">Googleドライブアプリの「スキャン」を開く</label>
+  </div>
   <p class="note">このページを開いているURLの生成元：<code id="origin"></code><br>
   クライアントIDの「承認済みの JavaScript 生成元」に、これと同じものを登録してください。</p>
 </details>
 
+<input type="file" id="camInput" accept="image/*" capture="environment" hidden>
 <div id="main" class="app locked">
 <aside id="side">
   <!-- 絞り込み -->
@@ -243,6 +253,7 @@
       </div>
       <div class="dropzone" id="upZone" style="margin-top:6px">
         ここにファイルをドロップ<br>
+        <button class="pri" id="btnCam2" style="margin-top:6px">📷 撮影してアップ</button>
         <label class="btnlike" style="display:inline-block;margin-top:6px">ファイルを選ぶ<input type="file" id="upInput" multiple hidden></label>
       </div>
     </div>
@@ -577,6 +588,7 @@ function renderAccounts() {
   $('btnLogout').disabled = !current;
   $('main').classList.toggle('locked', !current);
   $('btnAddAcct').textContent = accounts.size ? 'アカウントを追加' : 'Googleでログイン';
+  $('btnCam').disabled = !current;
 }
 
 /* ---------- Drive API ---------- */
@@ -771,6 +783,7 @@ async function search(c) {
   if (c.modTo) q.push(`modifiedTime < '${localMidnightISO(c.modTo, 1)}'`);
   if (c.creFrom) q.push(`createdTime >= '${localMidnightISO(c.creFrom)}'`);
   if (c.creTo) q.push(`createdTime < '${localMidnightISO(c.creTo, 1)}'`);
+  if (c.createdAfter) q.push(`createdTime > '${c.createdAfter}'`);
   if (c.usage && c.usage !== '__none__') q.push(`properties has { key='${USAGE_KEY}' and value='${qEsc(c.usage)}' }`);
 
   const inc = splitWords(c.keyword).map(makeMatcher), exc = splitWords(c.exclude).map(makeMatcher);
@@ -1086,13 +1099,19 @@ async function uploadOne(file, parentId, usage, skipDup) {
 }
 
 // items: [{name, get: async () => File}]
-async function uploadItems(items, dest) {
+// opts.preview：確認画面に出す画像URL／opts.camera：撮影からのアップロード
+async function uploadItems(items, dest, opts) {
+  opts = opts || {};
   if (!dest) return status('アップロード先のフォルダがありません', 'err');
   if (busy) return;
-  const usage = $('upUsage').value, skipDup = $('upSkipDup').checked;
+  let usage = $('upUsage').value; const skipDup = !opts.camera && $('upSkipDup').checked;
   const names = items.map(x => x.name);
-  const extra = (usage ? `用途「${esc(usage)}」を付けます。` : '') + (skipDup ? '同じフォルダに同名ファイルがあればスキップします。' : '');
-  if (!await confirmDlg('ドライブへアップロード', `${items.length}件を「${esc(dest.name)}」へアップロードします（アカウント：${esc(current)}）。${extra}`, names)) return;
+  const extra = opts.camera
+    ? `<br><label>用途 <select id="camUsage">${usageOptions(usage, true).replace('（未設定）', 'なし')}</select></label>`
+    : (usage ? `用途「${esc(usage)}」を付けます。` : '') + (skipDup ? '同じフォルダに同名ファイルがあればスキップします。' : '');
+  const prev = opts.preview ? `<img id="camPrev" src="${opts.preview}" alt="撮影した写真">` : '';
+  if (!await confirmDlg('ドライブへアップロード', `${prev}${items.length}件を「${esc(dest.name)}」へアップロードします（アカウント：${esc(current)}）。${extra}`, names)) return false;
+  if (opts.camera && $('camUsage')) { usage = $('camUsage').value; $('upUsage').value = usage; }
   let ok = 0, skip = 0, n = 0; const fails = []; const ops = [];
   setBusy(true);
   await pool(items, PARALLEL_IO, async it => {
@@ -1110,7 +1129,98 @@ async function uploadItems(items, dest) {
   if (fails.length) msg += `<br><span class="err">${fails.length}件失敗</span><ul class="err">` + fails.slice(0, 10).map(f => `<li>${esc(f.name)}：${esc(f.error)}</li>`).join('') + '</ul>';
   status(msg, fails.length ? '' : 'okc');
   if (ok && filterFolder && filterFolder.id === dest.id) { const m = $('status').innerHTML; await doSearch(); $('status').innerHTML = m; }
+  if (opts.camera && ok) $('status').insertAdjacentHTML('beforeend', ' <button class="sm pri" data-act="cam">📷 続けて撮る</button>');
+  return ok > 0;
 }
+
+/* ---------- 撮影してアップ ---------- */
+const LS_CAM = 'driveSeiri.camMode';
+function camMode() { return lsGet(LS_CAM) === 'drive' ? 'drive' : 'camera'; }
+function applyCamMode() {
+  const m = camMode();
+  document.querySelectorAll('input[name=camMode]').forEach(i => { i.checked = i.value === m; });
+  const label = m === 'drive' ? '📄 ドライブでスキャン' : '📷 撮影してアップ';
+  $('btnCam').textContent = label; $('btnCam2').textContent = label;
+}
+document.querySelectorAll('input[name=camMode]').forEach(i => i.addEventListener('change', () => { lsSet(LS_CAM, i.value); applyCamMode(); }));
+
+function camStart() {
+  if (!current) return status('先に「Googleでログイン」してください', 'err');
+  if (busy) return;
+  if (camMode() === 'drive') return openDriveScan();
+  $('camInput').click();
+}
+
+/* ---------- Googleドライブアプリのスキャンを開く ---------- */
+const DRIVE_PKG = 'com.google.android.apps.docs';
+let scanLaunch = null;   // { t: ISO文字列, email }
+function openDriveScan() {
+  const ua = navigator.userAgent;
+  const android = /Android/i.test(ua);
+  const ios = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (!android && !ios) {
+    return status('ドライブアプリのスキャンはスマホ専用です。PCでは「⚙」で「このツールのカメラ」に切り替えると、ファイル選択でアップロードできます。', 'err');
+  }
+  scanLaunch = { t: new Date(Date.now() - 5000).toISOString(), email: current };
+  status('Googleドライブアプリを開いています… アプリの右下の「スキャン」（カメラのボタン）から撮影し、保存してからこの画面に戻ってください。', 'okc');
+  if (android) {
+    const fb = encodeURIComponent('https://play.google.com/store/apps/details?id=' + DRIVE_PKG);
+    location.href = `intent://#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=${DRIVE_PKG};S.browser_fallback_url=${fb};end`;
+  } else {
+    location.href = 'googledrive://';
+    setTimeout(() => {
+      if (document.visibilityState === 'visible') status('ドライブアプリを開けませんでした。App Store で「Google ドライブ」をインストールしてください。', 'err');
+    }, 2500);
+  }
+}
+// ドライブアプリから戻ってきたら、新しく増えたファイルを表示する
+async function showNewScans(manual) {
+  if (!scanLaunch || scanLaunch.email !== current || busy) return;
+  const since = scanLaunch.t;
+  for (let i = 0; i < (manual ? 1 : 6); i++) {
+    status(`ドライブアプリで追加されたファイルを確認しています…${i ? `（${i + 1}回目）` : ''}`);
+    try {
+      const r = await search({ types: [], keyword: '', exclude: '', modFrom: '', modTo: '', creFrom: '', creTo: '', sizeMinMB: '', sizeMaxMB: '', usage: '', folderId: '', ownedByMe: true, createdAfter: since });
+      if (r.files.length) {
+        files = r.files; dupMode = false; sortKey = 'createdTime'; sortDir = -1; sortRows();
+        selected.clear(); files.forEach(f => selected.add(f.id)); $('chkAll').checked = true;
+        $('resultArea').style.display = 'flex'; renderRows();
+        status(`ドライブアプリで追加されたファイルが <strong>${files.length}件</strong> あります（選択済み）。上の帯から用途を付けたり、移動したりできます。 <button class="sm" data-act="newscan">もう一度確認</button>`, 'okc');
+        return;
+      }
+    } catch (e) { return status('確認に失敗しました：' + esc(e.message), 'err'); }
+    if (!manual) await sleep(4000);
+  }
+  status('新しいファイルはまだ見つかりません。ドライブアプリで保存が終わってから押してください。 <button class="sm" data-act="newscan">もう一度確認</button>');
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && scanLaunch && !scanLaunch.checked && Date.now() - Date.parse(scanLaunch.t) < 30 * 60 * 1000) {
+    scanLaunch.checked = true;   // 自動の確認は1回だけ（あとは「もう一度確認」）
+    showNewScans(false);
+  }
+});
+function stamp(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+$('btnCam').onclick = camStart;
+$('btnCam2').onclick = camStart;
+$('status').addEventListener('click', e => {
+  if (e.target.closest('[data-act="cam"]')) camStart();
+  if (e.target.closest('[data-act="newscan"]')) showNewScans(true);
+});
+$('camInput').onchange = async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  const dot = f.name.lastIndexOf('.');
+  const ext = dot > 0 ? f.name.slice(dot).toLowerCase() : (f.type === 'image/png' ? '.png' : '.jpg');
+  const file = new File([f], `スキャン_${stamp(new Date())}${ext}`, { type: f.type || 'image/jpeg', lastModified: Date.now() });
+  const url = URL.createObjectURL(file);
+  try {
+    await uploadItems([{ name: file.name, get: async () => file }], curFolder(), { preview: url, camera: true });
+  } finally { URL.revokeObjectURL(url); }
+};
 
 $('upInput').onchange = e => {
   const list = [...e.target.files].map(f => ({ name: f.name, get: async () => f }));
@@ -1233,8 +1343,8 @@ function confirmDlg(title, msgHtml, names) {
 }
 function setBusy(b) {
   busy = b;
-  ['btnBulkUsage','btnMove','btnTrash','btnSearch','btnRename','btnDup','btnHistClear','btnToPcCopy','btnToPcMove','btnLocalUp','acctSel','btnAddAcct','btnLogout'].forEach(id => $(id).disabled = b);
-  if (!b) $('btnLogout').disabled = !current;
+  ['btnBulkUsage','btnMove','btnTrash','btnSearch','btnRename','btnDup','btnHistClear','btnCam','btnCam2','btnToPcCopy','btnToPcMove','btnLocalUp','acctSel','btnAddAcct','btnLogout'].forEach(id => $(id).disabled = b);
+  if (!b) { $('btnLogout').disabled = !current; $('btnCam').disabled = !current; }
 }
 function finishBulk(label, okCount, fails) {
   const nameOf = id => nameOfId(id);
@@ -1580,7 +1690,7 @@ if (!HAS_FS) {
   $('pcUnsupported').style.display = 'block'; $('btnPickLocal').disabled = true; $('pcHint').style.display = 'none';
   $('btnToPcCopy').title = $('btnToPcMove').title = 'PC版のChrome・Edgeで使えます';
 }
-TAGS = loadTags(); renderTags(); renderAccounts(); renderTree(); renderHistory();
+TAGS = loadTags(); renderTags(); renderAccounts(); renderTree(); renderHistory(); applyCamMode();
 </script>
 </body>
 </html>
