@@ -1,0 +1,1495 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ドライブ整理ツール</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root { --bd:#d0d7de; --bg:#f6f8fa; --ac:#1a73e8; --dg:#c5221f; --ok:#188038; --tx:#202124; --sub:#5f6368; --base:#fff; --sel:#e8f0fe; }
+  * { box-sizing: border-box; }
+  body { font-family: "Yu Gothic UI","Meiryo",sans-serif; margin:0; padding:16px; color:var(--tx); background:var(--base); font-size:14px; }
+  h1 { font-size:18px; margin:0; }
+  h2 { font-size:14px; margin:0; }
+  header { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .acct { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  fieldset { border:1px solid var(--bd); border-radius:8px; padding:12px; margin:0 0 12px; }
+  legend { font-weight:bold; padding:0 6px; }
+  details { border:1px solid var(--bd); border-radius:8px; padding:8px 12px; margin-bottom:12px; }
+  summary { cursor:pointer; font-weight:bold; }
+  .grid { display:grid; grid-template-columns: 110px 1fr; gap:8px 12px; align-items:center; }
+  .grid label.h { color:#3c4043; }
+  input[type=text], input[type=date], input[type=number], select { padding:5px 7px; border:1px solid var(--bd); border-radius:6px; font-size:14px; background:#fff; max-width:100%; }
+  input[type=number] { width:90px; }
+  .row { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; }
+  button, .btnlike { padding:6px 12px; border:1px solid var(--bd); border-radius:6px; background:#fff; cursor:pointer; font-size:14px; color:var(--tx); }
+  button.pri { background:var(--ac); color:#fff; border-color:var(--ac); }
+  button.dg { background:var(--dg); color:#fff; border-color:var(--dg); }
+  button.sm { padding:3px 8px; font-size:12px; }
+  button:disabled { opacity:.5; cursor:default; }
+  .note { color:var(--sub); font-size:12px; }
+  .chip { display:inline-block; background:var(--sel); color:#1967d2; border-radius:12px; padding:2px 10px; }
+  #status { margin:8px 0; min-height:20px; }
+  .err { color:var(--dg); } .okc { color:var(--ok); }
+
+  /* 2ペイン */
+  .layout { display:grid; grid-template-columns: 300px minmax(0,1fr); gap:16px; align-items:start; }
+  aside { position:sticky; top:8px; max-height:calc(100vh - 16px); overflow:auto; display:flex; flex-direction:column; gap:12px; }
+  .pane { border:1px solid var(--bd); border-radius:8px; padding:8px; background:var(--base); }
+  .pane > .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:6px; }
+
+  /* ツリー */
+  ul.tree, ul.tree ul { list-style:none; margin:0; padding-left:14px; }
+  ul.tree { padding-left:0; max-height:45vh; overflow:auto; }
+  .node { display:flex; align-items:center; gap:2px; padding:2px 4px; border-radius:4px; cursor:pointer; white-space:nowrap; }
+  .node:hover { background:#f1f3f4; }
+  .node.cur { background:var(--sel); font-weight:bold; }
+  .node.drop { outline:2px dashed var(--ac); background:var(--sel); }
+  .tw { width:16px; text-align:center; color:var(--sub); flex:none; }
+  .nm { overflow:hidden; text-overflow:ellipsis; }
+
+  /* PC */
+  .crumbs { font-size:12px; margin:4px 0; word-break:break-all; }
+  .crumbs a { color:var(--ac); cursor:pointer; }
+  .llist { max-height:30vh; overflow:auto; border-top:1px solid #eee; }
+  .litem { display:flex; align-items:center; gap:6px; padding:3px 2px; border-bottom:1px solid #f4f4f4; font-size:13px; }
+  .litem .n { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .litem.dir .n { cursor:pointer; color:var(--ac); }
+  .litem .s { color:var(--sub); font-size:12px; white-space:nowrap; }
+  .dropzone { border:2px dashed var(--bd); border-radius:8px; padding:10px; text-align:center; color:var(--sub); font-size:12px; }
+  .dropzone.drop { border-color:var(--ac); background:var(--sel); }
+
+  .bulk { position:sticky; top:0; background:var(--bg); border:1px solid var(--bd); border-radius:8px; padding:8px 10px; margin-bottom:8px; z-index:2; }
+  .tablewrap { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; }
+  th, td { border-bottom:1px solid #eee; padding:5px 6px; text-align:left; vertical-align:middle; }
+  th { background:var(--bg); cursor:pointer; white-space:nowrap; font-weight:normal; color:#3c4043; }
+  td.num { text-align:right; white-space:nowrap; }
+  td.dt { white-space:nowrap; }
+  td a { color:var(--ac); text-decoration:none; word-break:break-all; }
+  tr.sel { background:var(--sel); }
+  tbody tr { cursor:grab; }
+  td select { font-size:13px; padding:2px 4px; }
+  .saved { color:var(--ok); font-size:12px; margin-left:4px; }
+  .folderlist { max-height:220px; overflow:auto; border:1px solid var(--bd); border-radius:6px; margin-top:6px; display:none; background:#fff; }
+  .folderlist div { padding:5px 8px; cursor:pointer; border-bottom:1px solid #f1f3f4; }
+  .folderlist div:hover { background:var(--sel); }
+  .tags span { display:inline-flex; align-items:center; gap:4px; background:#f1f3f4; border-radius:12px; padding:2px 4px 2px 10px; margin:2px; }
+  .tags span button { border:none; background:none; padding:0 4px; color:var(--sub); }
+  dialog { border:1px solid var(--bd); border-radius:10px; max-width:560px; width:92%; }
+  dialog ul { max-height:240px; overflow:auto; padding-left:20px; font-size:13px; }
+  .locked { opacity:.45; pointer-events:none; }
+  .warn { color:#b06000; }
+  #rnPreview td { font-size:13px; word-break:break-all; }
+  #rnPreview tr.same td { color:var(--sub); }
+  @media (max-width:900px){
+    body{padding:12px;}
+    .layout { grid-template-columns:1fr; }
+    aside { position:static; max-height:none; }
+    .grid { grid-template-columns:1fr; }
+    .bulk { position:static; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ドライブ整理ツール</h1>
+  <div class="acct">
+    <select id="acctSel" title="アカウント切替"></select>
+    <button id="btnAddAcct" class="pri">アカウントを追加</button>
+    <button id="btnLogout">このアカウントをログアウト</button>
+  </div>
+</header>
+
+<details id="setup">
+  <summary>初期設定（OAuth クライアントID）</summary>
+  <p class="note">Google Cloud で発行した「ウェブアプリケーション」のクライアントIDを入れてください。このブラウザにだけ保存されます。</p>
+  <div class="row">
+    <input type="text" id="clientId" size="60" placeholder="xxxxxxxx.apps.googleusercontent.com">
+    <button id="btnSaveClient">保存</button>
+  </div>
+  <p class="note">このページを開いているURLの生成元：<code id="origin"></code><br>
+  クライアントIDの「承認済みの JavaScript 生成元」に、これと同じものを登録してください。</p>
+</details>
+
+<div id="main" class="layout locked">
+<aside>
+  <!-- ドライブのツリー -->
+  <div class="pane">
+    <div class="head"><h2>ドライブ</h2><button class="sm" id="btnTreeReload" title="再読み込み">↻ 更新</button></div>
+    <ul class="tree" id="tree"></ul>
+    <p class="note">フォルダをクリック → 中身を一覧に表示。<br>一覧の行・PCのファイル・エクスプローラーのファイルを、フォルダへドラッグすると移動／アップロードします。</p>
+  </div>
+
+  <!-- アップロード設定 -->
+  <div class="pane">
+    <div class="head"><h2>PC → ドライブ</h2></div>
+    <div class="note">アップロード先：<span id="upDest" class="chip">マイドライブ</span></div>
+    <div class="row" style="margin-top:6px">
+      <label class="note">用途
+        <select id="upUsage"></select></label>
+      <label class="note"><input type="checkbox" id="upSkipDup" checked>同名があればスキップ</label>
+    </div>
+    <div class="dropzone" id="upZone" style="margin-top:6px">
+      ここにファイルをドロップ<br>
+      <label class="btnlike" style="display:inline-block;margin-top:6px">ファイルを選ぶ<input type="file" id="upInput" multiple hidden></label>
+    </div>
+  </div>
+
+  <!-- PCのフォルダ -->
+  <div class="pane" id="pcPane">
+    <div class="head"><h2>PC</h2><button class="sm" id="btnPickLocal">フォルダを選ぶ</button></div>
+    <div id="pcUnsupported" class="note err" style="display:none">このブラウザはPCのフォルダを直接開けません（PC版のChrome・Edgeで使えます）。アップロードは上の「ファイルを選ぶ」でできます。</div>
+    <div id="pcBody" style="display:none">
+      <div class="crumbs" id="crumbs"></div>
+      <div class="row" style="margin-bottom:4px">
+        <label class="note"><input type="checkbox" id="lAll">全選択</label>
+        <button class="sm" id="btnLocalReload">↻</button>
+        <button class="sm pri" id="btnLocalUp">選択をドライブへ</button>
+      </div>
+      <div class="llist" id="llist"></div>
+      <p class="note">ここが「PCへコピー／移動」の保存先です。</p>
+    </div>
+  </div>
+
+  <!-- 操作履歴 -->
+  <div class="pane">
+    <div class="head"><h2>操作履歴</h2><button class="sm" id="btnHistClear">履歴を消す</button></div>
+    <div id="hist" class="llist"></div>
+    <p class="note">このブラウザに、アカウントごと直近30回分を残します。「元に戻す」でまとめて戻せます。</p>
+  </div>
+</aside>
+
+<div id="content">
+<fieldset>
+  <legend>絞り込み条件（すべてAND）</legend>
+  <div class="grid">
+    <label class="h">ファイル名</label>
+    <div class="row">
+      <input type="text" id="keyword" placeholder="含む語（例：領収書 2026*.pdf）" size="28">
+      <input type="text" id="exclude" placeholder="除外する語（例：*_old.*）" size="16">
+      <span class="note">スペース区切りで複数指定（含む語は全部、除外語はどれか1つ）。* は任意の文字列、? は任意の1文字。* か ? を含む語はファイル名全体と照合、含まない語は部分一致。</span>
+    </div>
+
+    <label class="h">種類</label>
+    <div class="row" id="types">
+      <label><input type="checkbox" value="pdf">PDF</label>
+      <label><input type="checkbox" value="image">画像</label>
+      <label><input type="checkbox" value="excel">Excel・スプレッドシート・CSV</label>
+      <label><input type="checkbox" value="word">Word・ドキュメント</label>
+      <label><input type="checkbox" value="text">テキスト</label>
+      <label><input type="checkbox" value="video">動画</label>
+      <label><input type="checkbox" value="zip">ZIP</label>
+      <span class="note">（未選択＝すべて。複数選択はOR）</span>
+    </div>
+
+    <label class="h">更新日</label>
+    <div class="row"><input type="date" id="modFrom"> ～ <input type="date" id="modTo"></div>
+
+    <label class="h">作成日</label>
+    <div class="row"><input type="date" id="creFrom"> ～ <input type="date" id="creTo"></div>
+
+    <label class="h">サイズ</label>
+    <div class="row">
+      <input type="number" id="sizeMin" min="0" step="0.1" placeholder="下限"> MB ～
+      <input type="number" id="sizeMax" min="0" step="0.1" placeholder="上限"> MB
+      <span class="note">指定するとGoogleドキュメント形式（サイズなし）は対象外</span>
+    </div>
+
+    <label class="h">用途</label>
+    <div class="row"><select id="usageFilter"></select></div>
+
+    <label class="h">フォルダ</label>
+    <div>
+      <div class="row">
+        <span id="folderChip" class="chip" style="display:none"></span>
+        <input type="text" id="folderInput" placeholder="フォルダ名・URL・ID" size="26">
+        <button type="button" id="btnFindFolder">探す</button>
+        <button type="button" id="btnClearFolder">指定を外す</button>
+        <span class="note">直下のファイルのみ。左のツリーで選んでも指定されます。</span>
+      </div>
+      <div class="folderlist" id="folderList"></div>
+    </div>
+
+    <label class="h">オーナー</label>
+    <div class="row"><label><input type="checkbox" id="ownedByMe" checked>自分がオーナーのファイルのみ</label></div>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button class="pri" id="btnSearch">検索</button>
+    <button id="btnReset">条件をクリア</button>
+  </div>
+</fieldset>
+
+<div id="status"></div>
+
+<div id="resultArea" style="display:none">
+  <div class="bulk">
+    <div class="row">
+      <label><input type="checkbox" id="chkAll">全選択</label>
+      <strong id="selCount">0件選択</strong>
+      <span>｜</span>
+      <select id="bulkUsage"></select>
+      <button id="btnBulkUsage">用途を付ける</button>
+      <span>｜</span>
+      <span id="moveChip" class="chip" style="display:none"></span>
+      <button id="btnPickMove">移動先を選ぶ</button>
+      <button id="btnMove">移動</button>
+      <span>｜</span>
+      <button id="btnToPcCopy">PCへコピー</button>
+      <button id="btnToPcMove">PCへ移動</button>
+      <span>｜</span>
+      <button class="dg" id="btnTrash">ゴミ箱へ</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <button id="btnRename">名前を一括変更</button>
+      <button id="btnDup">重複を探す</button>
+      <button id="btnCsv">一覧をCSV保存</button>
+    </div>
+    <div class="row" id="moveFind" style="display:none;margin-top:6px">
+      <input type="text" id="moveInput" placeholder="移動先フォルダ名・URL・ID" size="26">
+      <button id="btnFindMove">探す</button>
+      <button id="btnMoveFromTree">ツリーで選択中のフォルダにする</button>
+    </div>
+    <div class="folderlist" id="moveList"></div>
+  </div>
+  <div class="tablewrap">
+  <table>
+    <thead><tr>
+      <th style="width:28px"></th>
+      <th data-k="name">ファイル名</th>
+      <th data-k="usage">用途</th>
+      <th data-k="mimeType">種類</th>
+      <th data-k="size">サイズ</th>
+      <th data-k="modifiedTime">更新日</th>
+      <th data-k="createdTime">作成日</th>
+      <th data-k="parentName">フォルダ</th>
+      <th data-k="dup" id="thDup" style="display:none">重複</th>
+    </tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  </div>
+</div>
+
+<fieldset style="margin-top:16px">
+  <legend>用途の選択肢</legend>
+  <div class="tags" id="tagList"></div>
+  <div class="row" style="margin-top:6px">
+    <input type="text" id="newTag" placeholder="追加する用途" size="16">
+    <button id="btnAddTag">追加</button>
+    <span class="note">このブラウザに保存され、全アカウント共通です。選択肢から消しても、ファイルに付いている用途は残ります。</span>
+  </div>
+</fieldset>
+</div>
+</div>
+
+<dialog id="renDlg" style="max-width:900px">
+  <h3>名前を一括変更</h3>
+  <div class="grid">
+    <label class="h">置換</label>
+    <div class="row">
+      <input type="text" id="rnFind" size="20" placeholder="探す文字（空なら置換しない）"> →
+      <input type="text" id="rnRepl" size="16" placeholder="置き換え後">
+      <label><input type="checkbox" id="rnRegex">正規表現</label>
+      <label><input type="checkbox" id="rnCase">大文字・小文字を区別</label>
+    </div>
+    <label class="h">新しい名前</label>
+    <div class="row">
+      <input type="text" id="rnTpl" size="40" value="{名前}">
+      <label><input type="checkbox" id="rnExt">拡張子も対象にする</label>
+    </div>
+    <label class="h">連番</label>
+    <div class="row">開始 <input type="number" id="rnStart" value="1" min="0"> 桁数 <input type="number" id="rnPad" value="3" min="1" max="8"><span class="note">一覧の並び順に振ります</span></div>
+  </div>
+  <p class="note">使える記号：{名前}＝今の名前（置換後）／{連番}／{更新日}・{作成日}＝YYYYMMDD／{更新年月}＝YYYYMM／{用途}／{フォルダ}＝今いるフォルダ名<br>
+  例：<code>{更新日}_{名前}</code>　<code>{用途}_{連番}</code>　<code>{フォルダ}_{作成日}_{名前}</code>（拡張子はそのまま残ります）</p>
+  <div id="rnSummary" style="margin:6px 0"></div>
+  <div class="tablewrap" style="max-height:45vh;overflow:auto">
+    <table><thead><tr><th>今の名前</th><th>新しい名前</th><th>注意</th></tr></thead><tbody id="rnPreview"></tbody></table>
+  </div>
+  <div class="row" style="justify-content:flex-end;margin-top:8px">
+    <button id="rnNo">やめる</button>
+    <button class="pri" id="rnYes">変更する</button>
+  </div>
+</dialog>
+
+<dialog id="dlg">
+  <h3 id="dlgTitle"></h3>
+  <p id="dlgMsg"></p>
+  <ul id="dlgList"></ul>
+  <div class="row" style="justify-content:flex-end">
+    <button id="dlgNo">やめる</button>
+    <button class="pri" id="dlgYes">実行する</button>
+  </div>
+</dialog>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const SCOPE = 'https://www.googleapis.com/auth/drive';
+const API = 'https://www.googleapis.com/drive/v3';
+const UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
+const USAGE_KEY = 'usage';
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
+const DEFAULT_TAGS = ['証憑', '画像', 'エクセル', '業務メモ'];
+const MAX_SCAN = 5000;
+const PARALLEL = 5;
+const PARALLEL_IO = 3;   // PCへの保存・アップロードの同時数
+const LS_CLIENT = 'driveSeiri.clientId';
+const LS_TAGS = 'driveSeiri.tags';
+const DRAG_DRIVE = 'application/x-drive-ids';
+const DRAG_LOCAL = 'application/x-local-names';
+const HAS_FS = typeof window.showDirectoryPicker === 'function';
+
+const TYPE_CLAUSES = {
+  pdf: "mimeType = 'application/pdf'",
+  image: "mimeType contains 'image/'",
+  excel: "(mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or mimeType = 'application/vnd.ms-excel' or mimeType = 'application/vnd.google-apps.spreadsheet' or mimeType = 'text/csv')",
+  word: "(mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' or mimeType = 'application/msword' or mimeType = 'application/vnd.google-apps.document')",
+  text: "(mimeType = 'text/plain' or mimeType = 'text/markdown')",
+  video: "mimeType contains 'video/'",
+  zip: "(mimeType = 'application/zip' or mimeType = 'application/x-zip-compressed')"
+};
+// Google形式 → PCに保存するときの変換先
+const EXPORTS = {
+  'application/vnd.google-apps.document': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.docx'],
+  'application/vnd.google-apps.spreadsheet': ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx'],
+  'application/vnd.google-apps.presentation': ['application/vnd.openxmlformats-officedocument.presentationml.presentation', '.pptx'],
+  'application/vnd.google-apps.drawing': ['image/png', '.png']
+};
+
+/* ---------- 状態 ---------- */
+const accounts = new Map();  // email -> { token, exp, name, folderNames:Map }
+let current = null;
+let TAGS = [];
+let files = [];
+const selected = new Set();
+let filterFolder = null;     // {id,name}
+let moveFolder = null;       // {id,name}
+let sortKey = 'modifiedTime', sortDir = -1;
+let busy = false;
+let dupMode = false;              // 重複表示中か
+const tree = { rootId: null, nodes: new Map(), cur: null };   // ドライブのツリー
+const local = { stack: [], entries: [], sel: new Set() };     // PCのフォルダ
+
+/* ---------- 保存（このブラウザのみ） ---------- */
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+/* ---------- 表示補助 ---------- */
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function qEsc(s) { return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+function status(msg, cls) { $('status').innerHTML = msg ? `<span class="${cls||''}">${msg}</span>` : ''; }
+function fmtSize(b) {
+  if (b == null) return '-';
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+  return (b/1073741824).toFixed(2) + ' GB';
+}
+function fmtDate(s) {
+  if (!s) return '';
+  const d = new Date(s);
+  return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+}
+function typeLabel(m) {
+  if (!m) return '';
+  if (m === 'application/pdf') return 'PDF';
+  if (m.startsWith('image/')) return '画像';
+  if (m.startsWith('video/')) return '動画';
+  if (m.includes('spreadsheet') || m.includes('ms-excel') || m === 'text/csv') return '表計算';
+  if (m.includes('wordprocessing') || m === 'application/msword' || m.includes('google-apps.document')) return '文書';
+  if (m.includes('presentation')) return 'スライド';
+  if (m.startsWith('text/')) return 'テキスト';
+  if (m.includes('zip')) return 'ZIP';
+  if (m === 'application/vnd.google-apps.form') return 'フォーム';
+  if (m === 'application/vnd.google-apps.shortcut') return 'ショートカット';
+  if (m.startsWith('application/vnd.google-apps.')) return 'Google形式';
+  return m.split('/').pop().slice(0, 16);
+}
+function localMidnightISO(ymd, addDays) {
+  const p = ymd.split('-').map(Number);
+  return new Date(p[0], p[1] - 1, p[2] + (addDays || 0)).toISOString();
+}
+function splitWords(s) { return String(s || '').toLowerCase().split(/[\s　]+/).filter(Boolean); }
+// * ? を含む語はファイル名全体とワイルドカード照合、含まない語は部分一致
+function makeMatcher(word) {
+  if (!/[*?]/.test(word)) return name => name.includes(word);
+  const re = new RegExp('^' + word.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'is');
+  return name => re.test(name);
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ---------- Googleログイン ---------- */
+function getClientId() { return (lsGet(LS_CLIENT) || '').trim(); }
+
+function gisReady() {
+  return new Promise((resolve, reject) => {
+    let n = 0;
+    (function wait() {
+      if (window.google && google.accounts && google.accounts.oauth2) return resolve();
+      if (++n > 100) return reject(new Error('Googleのログイン部品を読み込めませんでした。インターネット接続を確認してください。'));
+      setTimeout(wait, 100);
+    })();
+  });
+}
+
+async function requestToken(opts) {
+  const clientId = getClientId();
+  if (!clientId) throw new Error('先に「初期設定」でクライアントIDを保存してください。');
+  await gisReady();
+  return new Promise((resolve, reject) => {
+    const tc = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: SCOPE,
+      callback: r => {
+        if (r.error) return reject(new Error(r.error_description || r.error));
+        if (!google.accounts.oauth2.hasGrantedAllScopes(r, SCOPE)) {
+          return reject(new Error('ドライブへのアクセスが許可されていません。ログイン画面でドライブの権限にチェックを入れてください。'));
+        }
+        resolve(r);
+      },
+      error_callback: e => reject(new Error(e && e.type === 'popup_closed' ? 'ログイン画面が閉じられました。' : 'ログインに失敗しました（' + (e && e.type || '不明') + '）'))
+    });
+    tc.requestAccessToken(opts || {});
+  });
+}
+
+async function addAccount() {
+  try {
+    const r = await requestToken({ prompt: 'select_account' });
+    const res = await fetch(`${API}/about?fields=user(emailAddress,displayName)`, { headers: { Authorization: 'Bearer ' + r.access_token } });
+    if (!res.ok) throw new Error(`アカウント情報を取得できません(${res.status})`);
+    const about = await res.json();
+    const email = about.user.emailAddress;
+    const prev = accounts.get(email);
+    accounts.set(email, {
+      token: r.access_token,
+      exp: Date.now() + (Number(r.expires_in) || 3600) * 1000,
+      name: about.user.displayName || '',
+      folderNames: prev ? prev.folderNames : new Map()
+    });
+    await switchAccount(email);
+    status(`${esc(email)} でログインしました`, 'okc');
+  } catch (e) { status(esc(e.message), 'err'); }
+}
+
+async function token() {
+  const a = accounts.get(current);
+  if (!a) throw new Error('アカウントが選ばれていません');
+  if (Date.now() < a.exp - 60000) return a.token;
+  const r = await requestToken({ prompt: '', hint: current });
+  a.token = r.access_token;
+  a.exp = Date.now() + (Number(r.expires_in) || 3600) * 1000;
+  return a.token;
+}
+
+function logout() {
+  const a = accounts.get(current); if (!a) return;
+  try { google.accounts.oauth2.revoke(a.token, () => {}); } catch (e) {}
+  const email = current;
+  accounts.delete(email);
+  switchAccount(accounts.size ? accounts.keys().next().value : null);
+  status(`${esc(email)} をログアウトしました`, 'okc');
+}
+
+async function switchAccount(email) {
+  current = email;
+  files = []; selected.clear(); filterFolder = null; moveFolder = null;
+  $('folderChip').style.display = 'none'; $('moveChip').style.display = 'none';
+  $('resultArea').style.display = 'none'; status('');
+  tree.rootId = null; tree.nodes.clear(); tree.cur = null; renderTree(); setUpDest();
+  dupMode = false; loadHistory();
+  renderAccounts();
+  if (email) {
+    try { await loadTreeRoot(); } catch (e) { status('フォルダ一覧の読み込みに失敗：' + esc(e.message), 'err'); }
+  }
+}
+
+function renderAccounts() {
+  $('acctSel').innerHTML = accounts.size
+    ? [...accounts.keys()].map(e => `<option value="${esc(e)}"${e === current ? ' selected' : ''}>${esc(e)}</option>`).join('')
+    : '<option value="">未ログイン</option>';
+  $('btnLogout').disabled = !current;
+  $('main').classList.toggle('locked', !current);
+  $('btnAddAcct').textContent = accounts.size ? 'アカウントを追加' : 'Googleでログイン';
+}
+
+/* ---------- Drive API ---------- */
+// 認証つきで呼ぶ。401は1回だけログインし直し、回数制限・一時エラーは待って再試行
+async function authFetch(url, init) {
+  init = init || {};
+  for (let attempt = 0; ; attempt++) {
+    const tok = await token();
+    const res = await fetch(url, Object.assign({}, init, {
+      headers: Object.assign({ Authorization: 'Bearer ' + tok }, init.headers || {})
+    }));
+    if (res.ok) return res;
+    let msg = '';
+    try { const j = await res.clone().json(); msg = (j.error && j.error.message) || ''; } catch (e) {}
+    if (res.status === 401 && attempt === 0) { accounts.get(current).exp = 0; continue; }
+    const rate = res.status === 429 || (res.status === 403 && /rate|limit/i.test(msg)) || res.status >= 500;
+    if (rate && attempt < 4) { await sleep(800 * Math.pow(2, attempt) + Math.random() * 300); continue; }
+    const err = new Error(`Drive APIエラー(${res.status}) ${msg}`);
+    err.status = res.status;
+    throw err;
+  }
+}
+
+async function api(path, params, init) {
+  const qs = params ? '?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString() : '';
+  init = init || {};
+  if (init.body && typeof init.body === 'string') init.headers = Object.assign({ 'Content-Type': 'application/json' }, init.headers || {});
+  const res = await authFetch(API + path + qs, init);
+  return res.status === 204 ? {} : res.json();
+}
+
+async function pool(items, n, fn) {
+  let i = 0;
+  const workers = Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (i < items.length) { const idx = i++; await fn(items[idx], idx); }
+  });
+  await Promise.all(workers);
+}
+
+async function folderName(id) {
+  const cache = accounts.get(current).folderNames;
+  if (cache.has(id)) return cache.get(id);
+  let name = '-';
+  try { name = (await api('/files/' + encodeURIComponent(id), { fields: 'name' })).name; } catch (e) {}
+  cache.set(id, name);
+  return name;
+}
+
+/* ---------- ドライブのツリー ---------- */
+async function loadTreeRoot() {
+  const r = await api('/files/root', { fields: 'id' });
+  tree.rootId = r.id; tree.nodes.clear();
+  tree.nodes.set(r.id, { id: r.id, name: 'マイドライブ', children: null, open: true });
+  accounts.get(current).folderNames.set(r.id, 'マイドライブ');
+  if (!tree.cur) tree.cur = r.id;
+  setUpDest();
+  await loadChildren(r.id);
+  renderTree();
+}
+
+async function loadChildren(id) {
+  const kids = []; let pt = null;
+  const cache = accounts.get(current).folderNames;
+  do {
+    const res = await api('/files', {
+      q: `'${qEsc(id)}' in parents and mimeType = '${FOLDER_MIME}' and trashed = false`,
+      pageSize: 1000, orderBy: 'name', pageToken: pt, fields: 'nextPageToken, files(id,name)'
+    });
+    for (const f of (res.files || [])) {
+      const old = tree.nodes.get(f.id);
+      tree.nodes.set(f.id, { id: f.id, name: f.name, children: old ? old.children : null, open: old ? old.open : false });
+      cache.set(f.id, f.name);
+      kids.push(f.id);
+    }
+    pt = res.nextPageToken;
+  } while (pt);
+  tree.nodes.get(id).children = kids;
+}
+
+function nodeHtml(id) {
+  const n = tree.nodes.get(id); if (!n) return '';
+  const hasKids = n.children === null || n.children.length > 0;
+  const tw = hasKids ? `<span class="tw" data-act="toggle">${n.open ? '▾' : '▸'}</span>` : '<span class="tw"></span>';
+  let h = `<li><div class="node${tree.cur === id ? ' cur' : ''}" data-id="${esc(id)}" title="${esc(n.name)}">${tw}<span class="nm">📁 ${esc(n.name)}</span></div>`;
+  if (n.open && n.children && n.children.length) h += '<ul>' + n.children.map(nodeHtml).join('') + '</ul>';
+  return h + '</li>';
+}
+function renderTree() { $('tree').innerHTML = tree.rootId ? nodeHtml(tree.rootId) : '<li class="note">ログインすると表示されます</li>'; }
+
+function curFolder() {
+  const id = tree.cur || tree.rootId;
+  const n = tree.nodes.get(id);
+  return id ? { id, name: n ? n.name : (accounts.get(current).folderNames.get(id) || id) } : null;
+}
+function setUpDest() { const f = current && curFolder(); $('upDest').textContent = f ? '📁 ' + f.name : '—'; }
+
+async function toggleNode(id) {
+  const n = tree.nodes.get(id);
+  if (n.open) { n.open = false; renderTree(); return; }
+  if (n.children === null) {
+    const el = document.querySelector(`.node[data-id="${CSS.escape(id)}"] .tw`);
+    if (el) el.textContent = '…';
+    try { await loadChildren(id); } catch (e) { status('フォルダの読み込みに失敗：' + esc(e.message), 'err'); }
+  }
+  n.open = true; renderTree();
+}
+
+function selectNode(id) {
+  tree.cur = id; renderTree(); setUpDest();
+  const f = curFolder();
+  setFilterFolder(f);
+  doSearch();
+}
+
+$('tree').addEventListener('click', e => {
+  const node = e.target.closest('.node'); if (!node || busy) return;
+  const id = node.dataset.id;
+  if (e.target.closest('[data-act="toggle"]')) toggleNode(id); else selectNode(id);
+});
+
+// ツリーへのドロップ：一覧の行→移動、PCのファイル→アップロード、エクスプローラーのファイル→アップロード
+function acceptsDrop(dt) { return dt && [...dt.types].some(t => t === DRAG_DRIVE || t === DRAG_LOCAL || t === 'Files'); }
+$('tree').addEventListener('dragover', e => {
+  const node = e.target.closest('.node'); if (!node || !acceptsDrop(e.dataTransfer) || busy) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = [...e.dataTransfer.types].includes(DRAG_DRIVE) ? 'move' : 'copy';
+  document.querySelectorAll('.node.drop').forEach(n => n !== node && n.classList.remove('drop'));
+  node.classList.add('drop');
+});
+$('tree').addEventListener('dragleave', e => {
+  const node = e.target.closest('.node'); if (node && !node.contains(e.relatedTarget)) node.classList.remove('drop');
+});
+$('tree').addEventListener('drop', async e => {
+  const node = e.target.closest('.node'); if (!node) return;
+  e.preventDefault(); node.classList.remove('drop');
+  const n = tree.nodes.get(node.dataset.id);
+  const dest = { id: n.id, name: n.name };
+  await handleDrop(e.dataTransfer, dest);
+});
+
+async function handleDrop(dt, dest) {
+  const types = [...dt.types];
+  if (types.includes(DRAG_DRIVE)) {
+    const ids = JSON.parse(dt.getData(DRAG_DRIVE) || '[]').filter(id => files.some(f => f.id === id));
+    if (!ids.length) return;
+    if (await confirmDlg('ドラッグで移動', `${ids.length}件を「${esc(dest.name)}」へ移動します。`, ids.map(nameOfId)))
+      runBulk('move', ids, dest.id, '移動', dest);
+  } else if (types.includes(DRAG_LOCAL)) {
+    const names = JSON.parse(dt.getData(DRAG_LOCAL) || '[]');
+    const items = local.entries.filter(x => x.kind === 'file' && names.includes(x.name));
+    if (items.length) uploadItems(items.map(x => ({ name: x.name, get: () => x.h.getFile() })), dest);
+  } else if (dt.files && dt.files.length) {
+    const list = []; let dirs = 0;
+    [...dt.items || []].forEach((it, i) => {
+      const ent = it.webkitGetAsEntry && it.webkitGetAsEntry();
+      if (ent && ent.isDirectory) { dirs++; return; }
+      const f = it.getAsFile ? it.getAsFile() : dt.files[i];
+      if (f) list.push({ name: f.name, get: async () => f });
+    });
+    if (!dt.items) [...dt.files].forEach(f => list.push({ name: f.name, get: async () => f }));
+    if (dirs) status(`フォルダ${dirs}件はスキップしました（ファイルだけアップロードできます）`, 'err');
+    if (list.length) uploadItems(list, dest);
+  }
+}
+
+$('btnTreeReload').onclick = async () => {
+  try { const keep = tree.cur; await loadTreeRoot(); if (keep && tree.nodes.has(keep)) tree.cur = keep; renderTree(); setUpDest(); }
+  catch (e) { status('更新に失敗：' + esc(e.message), 'err'); }
+};
+
+/* ---------- 検索 ---------- */
+function criteria() {
+  return {
+    keyword: $('keyword').value, exclude: $('exclude').value,
+    types: [...document.querySelectorAll('#types input:checked')].map(i => i.value),
+    modFrom: $('modFrom').value, modTo: $('modTo').value,
+    creFrom: $('creFrom').value, creTo: $('creTo').value,
+    sizeMinMB: $('sizeMin').value, sizeMaxMB: $('sizeMax').value,
+    usage: $('usageFilter').value,
+    folderId: filterFolder ? filterFolder.id : '',
+    ownedByMe: $('ownedByMe').checked
+  };
+}
+
+async function search(c) {
+  const q = ['trashed = false', `mimeType != '${FOLDER_MIME}'`];
+  if (c.ownedByMe) q.push("'me' in owners");
+  if (c.folderId) q.push(`'${qEsc(c.folderId)}' in parents`);
+  const types = c.types.map(t => TYPE_CLAUSES[t]).filter(Boolean);
+  if (types.length) q.push('(' + types.join(' or ') + ')');
+  if (c.modFrom) q.push(`modifiedTime >= '${localMidnightISO(c.modFrom)}'`);
+  if (c.modTo) q.push(`modifiedTime < '${localMidnightISO(c.modTo, 1)}'`);
+  if (c.creFrom) q.push(`createdTime >= '${localMidnightISO(c.creFrom)}'`);
+  if (c.creTo) q.push(`createdTime < '${localMidnightISO(c.creTo, 1)}'`);
+  if (c.usage && c.usage !== '__none__') q.push(`properties has { key='${USAGE_KEY}' and value='${qEsc(c.usage)}' }`);
+
+  const inc = splitWords(c.keyword).map(makeMatcher), exc = splitWords(c.exclude).map(makeMatcher);
+  const minB = c.sizeMinMB !== '' ? Number(c.sizeMinMB) * 1048576 : null;
+  const maxB = c.sizeMaxMB !== '' ? Number(c.sizeMaxMB) * 1048576 : null;
+
+  const out = [];
+  let pageToken = null, scanned = 0, truncated = false;
+  do {
+    const res = await api('/files', {
+      q: q.join(' and '),
+      pageSize: 1000,
+      pageToken: pageToken,
+      orderBy: 'modifiedTime desc',
+      fields: 'nextPageToken, files(id,name,mimeType,size,md5Checksum,modifiedTime,createdTime,parents,properties,webViewLink,ownedByMe)'
+    });
+    for (const f of (res.files || [])) {
+      scanned++;
+      const name = (f.name || '').toLowerCase();
+      if (inc.length && !inc.every(m => m(name))) continue;
+      if (exc.length && exc.some(m => m(name))) continue;
+      const size = f.size != null ? Number(f.size) : null;
+      if ((minB != null || maxB != null) && size == null) continue;
+      if (minB != null && size < minB) continue;
+      if (maxB != null && size > maxB) continue;
+      const usage = (f.properties && f.properties[USAGE_KEY]) || '';
+      if (c.usage === '__none__' && usage) continue;
+      out.push({
+        id: f.id, name: f.name, mimeType: f.mimeType, size: size,
+        modifiedTime: f.modifiedTime, createdTime: f.createdTime,
+        parentId: (f.parents || [])[0] || '', parentName: '',
+        usage: usage, url: f.webViewLink, ownedByMe: f.ownedByMe, md5: f.md5Checksum || ''
+      });
+    }
+    pageToken = res.nextPageToken;
+    status(`検索しています…（${scanned}件を確認）`);
+    if (scanned >= MAX_SCAN && pageToken) { truncated = true; break; }
+  } while (pageToken);
+
+  const pids = [...new Set(out.map(f => f.parentId).filter(Boolean))].slice(0, 300);
+  await pool(pids, 8, id => folderName(id));
+  const cache = accounts.get(current).folderNames;
+  out.forEach(f => { f.parentName = f.parentId ? (cache.get(f.parentId) || '-') : ''; });
+  return { files: out, scanned, truncated };
+}
+
+async function doSearch() {
+  const c = criteria();
+  if ((c.modFrom && c.modTo && c.modFrom > c.modTo) || (c.creFrom && c.creTo && c.creFrom > c.creTo)) { status('日付の範囲が逆です', 'err'); return; }
+  setBusy(true); status('検索しています…');
+  try {
+    const r = await search(c);
+    files = r.files; selected.clear(); $('chkAll').checked = false; dupMode = false;
+    if (sortKey === 'dup') { sortKey = 'modifiedTime'; sortDir = -1; }
+    sortRows(); renderRows();
+    $('resultArea').style.display = 'block';
+    let msg = `${files.length}件ヒット（${r.scanned}件を確認）`;
+    if (filterFolder) msg = `📁 ${esc(filterFolder.name)} 内：` + msg;
+    if (r.truncated) msg += `<br><span class="err">確認件数が上限（${MAX_SCAN}件）に達したため、途中までの結果です。条件を足して絞ってください。</span>`;
+    status(msg, 'okc');
+  } catch (e) { status('検索に失敗しました：' + esc(e.message), 'err'); }
+  setBusy(false);
+}
+
+/* ---------- ドライブ上の操作 ---------- */
+// 戻り値は「元に戻す」に使う情報
+async function doAction(action, id, arg) {
+  const path = '/files/' + encodeURIComponent(id);
+  const patch = (body, params) => api(path, Object.assign({ fields: 'id' }, params || {}), { method: 'PATCH', body: JSON.stringify(body) });
+  if (action === 'trash') {
+    await patch({ trashed: true });
+  } else if (action === 'untrash') {
+    await patch({ trashed: false });
+  } else if (action === 'usage') {
+    const props = {}; props[USAGE_KEY] = arg ? String(arg) : null;
+    await patch({ properties: props });
+  } else if (action === 'rename') {
+    await patch({ name: String(arg) });
+  } else if (action === 'move') {
+    const f = await api(path, { fields: 'parents' });
+    const parents = f.parents || [];
+    if (!(parents.length === 1 && parents[0] === arg)) {
+      await patch({}, { addParents: arg, removeParents: parents.filter(p => p !== arg).join(',') });
+    }
+    return { prevParents: parents };
+  } else if (action === 'restoreParents') {
+    const f = await api(path, { fields: 'parents' });
+    const cur = f.parents || [], want = arg || [];
+    const add = want.filter(p => !cur.includes(p)), remove = cur.filter(p => !want.includes(p));
+    if (add.length || remove.length) await patch({}, { addParents: add.join(','), removeParents: remove.join(',') });
+  } else {
+    throw new Error('不明な操作です');
+  }
+  return {};
+}
+
+async function resolveFolder(input) {
+  let id = input.trim();
+  const m = id.match(/folders\/([\w-]+)/) || id.match(/[?&]id=([\w-]+)/);
+  if (m) id = m[1];
+  const f = await api('/files/' + encodeURIComponent(id), { fields: 'id,name,mimeType' });
+  if (f.mimeType !== FOLDER_MIME) throw new Error('フォルダではありません');
+  return { id: f.id, name: f.name };
+}
+
+async function findFolders(name) {
+  const q = [`mimeType = '${FOLDER_MIME}'`, 'trashed = false'];
+  if (name) q.push(`name contains '${qEsc(name)}'`);
+  const res = await api('/files', { q: q.join(' and '), pageSize: 50, orderBy: 'name', fields: 'files(id,name,parents)' });
+  const rootId = tree.rootId || (await api('/files/root', { fields: 'id' })).id;
+  const list = [{ id: rootId, name: 'マイドライブ（一番上）', parentName: '' }];
+  const fl = res.files || [];
+  const pids = [...new Set(fl.map(f => (f.parents || [])[0]).filter(Boolean))];
+  await pool(pids, 8, id => folderName(id));
+  const cache = accounts.get(current).folderNames;
+  fl.forEach(f => {
+    const pid = (f.parents || [])[0];
+    list.push({ id: f.id, name: f.name, parentName: pid ? (pid === rootId ? 'マイドライブ' : cache.get(pid) || '') : '' });
+  });
+  return list;
+}
+
+/* ---------- PC（ローカルフォルダ） ---------- */
+async function pickLocal() {
+  try {
+    const h = await window.showDirectoryPicker({ id: 'driveseiri', mode: 'readwrite' });
+    local.stack = [h];
+    await loadLocal();
+    $('pcBody').style.display = 'block';
+  } catch (e) {
+    if (e.name !== 'AbortError') status('フォルダを開けませんでした：' + esc(e.message), 'err');
+  }
+}
+
+async function ensureLocalWritable() {
+  const dir = local.stack[local.stack.length - 1];
+  if (!dir) return null;
+  if (typeof dir.queryPermission !== 'function') return dir;
+  try {
+    if ((await dir.queryPermission({ mode: 'readwrite' })) === 'granted') return dir;
+    if ((await dir.requestPermission({ mode: 'readwrite' })) === 'granted') return dir;
+  } catch (e) {}
+  return null;
+}
+
+async function loadLocal() {
+  const dir = local.stack[local.stack.length - 1];
+  const list = [];
+  for await (const [name, h] of dir.entries()) list.push({ name, kind: h.kind, h, size: null });
+  list.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name, 'ja') : a.kind === 'directory' ? -1 : 1));
+  await pool(list.filter(x => x.kind === 'file').slice(0, 2000), 16, async x => {
+    try { x.size = (await x.h.getFile()).size; } catch (e) {}
+  });
+  local.entries = list; local.sel.clear(); $('lAll').checked = false;
+  renderLocal();
+}
+
+function renderLocal() {
+  $('crumbs').innerHTML = '💻 ' + local.stack.map((d, i) => `<a data-i="${i}">${esc(d.name)}</a>`).join(' / ');
+  $('llist').innerHTML = local.entries.map(x => x.kind === 'directory'
+    ? `<div class="litem dir"><span style="width:16px"></span><span class="n" data-dir="${esc(x.name)}">📁 ${esc(x.name)}</span></div>`
+    : `<div class="litem" draggable="true" data-name="${esc(x.name)}"><input type="checkbox" class="lc" ${local.sel.has(x.name) ? 'checked' : ''}><span class="n" title="${esc(x.name)}">${esc(x.name)}</span><span class="s">${fmtSize(x.size)}</span></div>`
+  ).join('') || '<div class="note" style="padding:6px">空のフォルダです</div>';
+}
+
+$('btnPickLocal').onclick = pickLocal;
+$('btnLocalReload').onclick = () => loadLocal().catch(e => status('読み込みに失敗：' + esc(e.message), 'err'));
+$('crumbs').addEventListener('click', e => {
+  const a = e.target.closest('a'); if (!a) return;
+  local.stack = local.stack.slice(0, Number(a.dataset.i) + 1); loadLocal();
+});
+$('llist').addEventListener('click', e => {
+  const d = e.target.closest('[data-dir]');
+  if (d) {
+    const ent = local.entries.find(x => x.kind === 'directory' && x.name === d.dataset.dir);
+    if (ent) { local.stack.push(ent.h); loadLocal(); }
+  }
+});
+$('llist').addEventListener('change', e => {
+  if (!e.target.classList.contains('lc')) return;
+  const name = e.target.closest('.litem').dataset.name;
+  e.target.checked ? local.sel.add(name) : local.sel.delete(name);
+});
+$('lAll').onchange = e => {
+  local.sel.clear();
+  if (e.target.checked) local.entries.filter(x => x.kind === 'file').forEach(x => local.sel.add(x.name));
+  renderLocal();
+};
+$('llist').addEventListener('dragstart', e => {
+  const it = e.target.closest('.litem[data-name]'); if (!it) return;
+  const name = it.dataset.name;
+  const names = local.sel.has(name) ? [...local.sel] : [name];
+  e.dataTransfer.setData(DRAG_LOCAL, JSON.stringify(names));
+  e.dataTransfer.effectAllowed = 'copy';
+});
+$('btnLocalUp').onclick = () => {
+  const items = local.entries.filter(x => x.kind === 'file' && local.sel.has(x.name));
+  if (!items.length) return status('PC側のファイルを選んでください', 'err');
+  uploadItems(items.map(x => ({ name: x.name, get: () => x.h.getFile() })), curFolder());
+};
+
+// Windowsで使えない文字を置き換え
+function safeName(n) {
+  return String(n).replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/[. ]+$/, '') || '無題';
+}
+async function existsIn(dir, name) {
+  try { await dir.getFileHandle(name); return true; } catch (e) { return false; }
+}
+async function uniqueName(dir, name, reserved) {
+  const dot = name.lastIndexOf('.');
+  const base = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '';
+  let cand = name, i = 1;
+  while (reserved.has(cand.toLowerCase()) || await existsIn(dir, cand)) cand = `${base} (${i++})${ext}`;
+  reserved.add(cand.toLowerCase());
+  return cand;
+}
+
+// ドライブのファイル1件をPCのフォルダに保存（Google形式はOffice形式に変換）
+async function saveToLocal(f, dir, reserved) {
+  let url, name = f.name;
+  if (f.mimeType.startsWith('application/vnd.google-apps.')) {
+    const ex = EXPORTS[f.mimeType];
+    if (!ex) throw new Error('Googleフォーム・マイマップなどの形式はPCに保存できません');
+    url = `${API}/files/${encodeURIComponent(f.id)}/export?mimeType=${encodeURIComponent(ex[0])}`;
+    if (!name.toLowerCase().endsWith(ex[1])) name += ex[1];
+  } else {
+    url = `${API}/files/${encodeURIComponent(f.id)}?alt=media`;
+  }
+  const res = await authFetch(url);
+  const fname = await uniqueName(dir, safeName(name), reserved);
+  const fh = await dir.getFileHandle(fname, { create: true });
+  const w = await fh.createWritable();
+  try {
+    await res.body.pipeTo(w);
+  } catch (e) {
+    try { await w.abort(); } catch (_) {}
+    try { await dir.removeEntry(fname); } catch (_) {}
+    throw e;
+  }
+  return fname;
+}
+
+async function toPc(remove) {
+  if (!selected.size) return status('ファイルを選んでください', 'err');
+  if (!HAS_FS) return status('このブラウザはPCのフォルダに直接保存できません（PC版のChrome・Edgeで使えます）', 'err');
+  if (!local.stack.length) { await pickLocal(); if (!local.stack.length) return; }
+  const dir = await ensureLocalWritable();
+  if (!dir) return status('PCのフォルダへの書き込みが許可されませんでした', 'err');
+  const ids = [...selected];
+  const path = local.stack.map(d => d.name).join(' / ');
+  const msg = remove
+    ? `${ids.length}件をPCの「${esc(path)}」に保存し、<strong>保存できたものだけドライブのゴミ箱へ移します</strong>（アカウント：${esc(current)}）。`
+    : `${ids.length}件をPCの「${esc(path)}」に保存します。ドライブ側はそのまま残ります。`;
+  if (!await confirmDlg(remove ? 'PCへ移動' : 'PCへコピー', msg + '<br><span class="note">同じ名前のファイルがPCにある場合は「(1)」などを付けて保存します。Googleドキュメント形式はWord・Excel・PowerPoint形式に変換します。</span>', ids.map(nameOfId))) return;
+
+  const label = remove ? 'PCへ移動' : 'PCへコピー';
+  const reserved = new Set(); const done = new Set(); const fails = []; let n = 0;
+  setBusy(true);
+  await pool(ids, PARALLEL_IO, async id => {
+    const f = files.find(x => x.id === id);
+    try {
+      await saveToLocal(f, dir, reserved);
+      if (remove) {
+        try { await doAction('trash', id); } catch (e) { throw new Error('PCには保存しましたが、ゴミ箱へ移せませんでした：' + e.message); }
+      }
+      done.add(id);
+    } catch (e) { fails.push({ id, error: e.message }); }
+    n++; status(`${label}：${n} / ${ids.length} 件…`);
+  });
+  if (remove) {
+    recordHistory('PCへ移動', [...done].map(id => ({ id, name: nameOfId(id), kind: 'trash', pcSaved: true })));
+    files = files.filter(f => !done.has(f.id));
+  }
+  finishBulk(label, done.size, fails);
+  if (local.stack[local.stack.length - 1] === dir) loadLocal().catch(() => {});
+}
+
+/* ---------- PC → ドライブ ---------- */
+async function uploadOne(file, parentId, usage, skipDup) {
+  if (skipDup) {
+    const r = await api('/files', { q: `name = '${qEsc(file.name)}' and '${qEsc(parentId)}' in parents and trashed = false`, fields: 'files(id)', pageSize: 1 });
+    if (r.files && r.files.length) return { skip: true };
+  }
+  const meta = { name: file.name, parents: [parentId] };
+  if (usage) meta.properties = { [USAGE_KEY]: usage };
+  const type = file.type || 'application/octet-stream';
+  // 再開可能アップロード（大きいファイルにも対応）
+  const init = await authFetch(`${UPLOAD_API}/files?uploadType=resumable&fields=id`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': type },
+    body: JSON.stringify(meta)
+  });
+  const loc = init.headers.get('Location');
+  if (loc) {
+    const put = await fetch(loc, { method: 'PUT', headers: { 'Content-Type': type }, body: file });
+    if (!put.ok) throw new Error(`アップロードに失敗(${put.status})`);
+    let id = '';
+    try { id = (await put.json()).id || ''; } catch (e) {}
+    return { id };
+  }
+  // Locationが読めない環境ではマルチパートで送る
+  const boundary = 'ds' + Math.random().toString(36).slice(2);
+  const body = new Blob([
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n`,
+    `--${boundary}\r\nContent-Type: ${type}\r\n\r\n`, file, `\r\n--${boundary}--`
+  ]);
+  const res = await authFetch(`${UPLOAD_API}/files?uploadType=multipart&fields=id`, {
+    method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body
+  });
+  let id = '';
+  try { id = (await res.json()).id || ''; } catch (e) {}
+  return { id };
+}
+
+// items: [{name, get: async () => File}]
+async function uploadItems(items, dest) {
+  if (!dest) return status('アップロード先のフォルダがありません', 'err');
+  if (busy) return;
+  const usage = $('upUsage').value, skipDup = $('upSkipDup').checked;
+  const names = items.map(x => x.name);
+  const extra = (usage ? `用途「${esc(usage)}」を付けます。` : '') + (skipDup ? '同じフォルダに同名ファイルがあればスキップします。' : '');
+  if (!await confirmDlg('ドライブへアップロード', `${items.length}件を「${esc(dest.name)}」へアップロードします（アカウント：${esc(current)}）。${extra}`, names)) return;
+  let ok = 0, skip = 0, n = 0; const fails = []; const ops = [];
+  setBusy(true);
+  await pool(items, PARALLEL_IO, async it => {
+    try {
+      const file = await it.get();
+      const r = await uploadOne(file, dest.id, usage, skipDup);
+      if (r.skip) skip++;
+      else { ok++; if (r.id) ops.push({ id: r.id, name: file.name, kind: 'upload' }); }
+    } catch (e) { fails.push({ name: it.name, error: e.message }); }
+    n++; status(`アップロード：${n} / ${items.length} 件…`);
+  });
+  recordHistory(`アップロード（→${dest.name}）`, ops);
+  setBusy(false);
+  let msg = `アップロード：${ok}件完了` + (skip ? `、同名のため${skip}件スキップ` : '');
+  if (fails.length) msg += `<br><span class="err">${fails.length}件失敗</span><ul class="err">` + fails.slice(0, 10).map(f => `<li>${esc(f.name)}：${esc(f.error)}</li>`).join('') + '</ul>';
+  status(msg, fails.length ? '' : 'okc');
+  if (ok && filterFolder && filterFolder.id === dest.id) { const m = $('status').innerHTML; await doSearch(); $('status').innerHTML = m; }
+}
+
+$('upInput').onchange = e => {
+  const list = [...e.target.files].map(f => ({ name: f.name, get: async () => f }));
+  e.target.value = '';
+  if (list.length) uploadItems(list, curFolder());
+};
+['dragover', 'dragenter'].forEach(t => $('upZone').addEventListener(t, e => {
+  if (!acceptsDrop(e.dataTransfer) || [...e.dataTransfer.types].includes(DRAG_DRIVE)) return;
+  e.preventDefault(); $('upZone').classList.add('drop');
+}));
+$('upZone').addEventListener('dragleave', () => $('upZone').classList.remove('drop'));
+$('upZone').addEventListener('drop', e => {
+  e.preventDefault(); $('upZone').classList.remove('drop');
+  if ([...e.dataTransfer.types].includes(DRAG_DRIVE)) return;
+  handleDrop(e.dataTransfer, curFolder());
+});
+// ドロップ先以外に落としたときにブラウザがファイルを開かないように
+['dragover', 'drop'].forEach(t => window.addEventListener(t, e => { if (!e.defaultPrevented && e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); }));
+
+/* ---------- 用途の選択肢 ---------- */
+function loadTags() {
+  try { const r = JSON.parse(lsGet(LS_TAGS)); if (Array.isArray(r)) return r; } catch (e) {}
+  return DEFAULT_TAGS.slice();
+}
+function saveTags(list) {
+  TAGS = [...new Set(list.map(t => String(t).trim()).filter(Boolean))];
+  lsSet(LS_TAGS, JSON.stringify(TAGS));
+  renderTags(); renderRows();
+}
+function usageOptions(cur, withBlank) {
+  let h = withBlank ? `<option value="">（未設定）</option>` : '';
+  const list = TAGS.slice();
+  if (cur && !list.includes(cur)) list.push(cur);
+  list.forEach(t => { h += `<option value="${esc(t)}"${t === cur ? ' selected' : ''}>${esc(t)}</option>`; });
+  return h;
+}
+function renderTags() {
+  $('tagList').innerHTML = TAGS.map((t, i) => `<span>${esc(t)}<button data-i="${i}" title="削除">×</button></span>`).join('') || '<span class="note">なし</span>';
+  const cur = $('usageFilter').value;
+  $('usageFilter').innerHTML = `<option value="">指定なし</option><option value="__none__">未設定のもの</option>` + TAGS.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  $('usageFilter').value = [...$('usageFilter').options].some(o => o.value === cur) ? cur : '';
+  $('bulkUsage').innerHTML = usageOptions('', false) + `<option value="__clear__">用途を外す</option>`;
+  const up = $('upUsage').value;
+  $('upUsage').innerHTML = usageOptions('', true).replace('（未設定）', 'なし');
+  $('upUsage').value = TAGS.includes(up) ? up : '';
+}
+
+/* ---------- 一覧 ---------- */
+function nameOfId(id) { return (files.find(f => f.id === id) || {}).name || id; }
+function sortRows() {
+  files.sort((a, b) => {
+    let x = a[sortKey], y = b[sortKey];
+    if (x == null) x = sortKey === 'size' ? -1 : '';
+    if (y == null) y = sortKey === 'size' ? -1 : '';
+    return (x > y ? 1 : x < y ? -1 : 0) * sortDir;
+  });
+}
+function renderRows() {
+  $('tbody').innerHTML = files.map(f => `
+    <tr data-id="${esc(f.id)}" class="${selected.has(f.id) ? 'sel' : ''}" draggable="true">
+      <td><input type="checkbox" class="rc" ${selected.has(f.id) ? 'checked' : ''}${f.ownedByMe ? '' : ' title="自分がオーナーではありません"'}></td>
+      <td><a href="${esc(f.url)}" target="_blank" rel="noopener" draggable="false">${esc(f.name)}</a></td>
+      <td><select class="us">${usageOptions(f.usage, true)}</select><span class="saved"></span></td>
+      <td>${esc(typeLabel(f.mimeType))}</td>
+      <td class="num">${fmtSize(f.size)}</td>
+      <td class="dt">${fmtDate(f.modifiedTime)}</td>
+      <td class="dt">${fmtDate(f.createdTime)}</td>
+      <td>${esc(f.parentName)}</td>${dupMode ? `<td>#${f.dup}</td>` : ''}
+    </tr>`).join('');
+  $('thDup').style.display = dupMode ? '' : 'none';
+  $('selCount').textContent = selected.size + '件選択';
+}
+$('tbody').addEventListener('dragstart', e => {
+  const tr = e.target.closest('tr'); if (!tr) return;
+  const id = tr.dataset.id;
+  const ids = selected.has(id) ? [...selected] : [id];
+  e.dataTransfer.setData(DRAG_DRIVE, JSON.stringify(ids));
+  e.dataTransfer.setData('text/plain', ids.length + '件');
+  e.dataTransfer.effectAllowed = 'move';
+});
+
+/* ---------- フォルダ選択 ---------- */
+function setFilterFolder(f) {
+  filterFolder = f;
+  if (f) { $('folderChip').textContent = '📁 ' + f.name; $('folderChip').style.display = 'inline-block'; }
+  else $('folderChip').style.display = 'none';
+}
+async function showFolderPicker(inputId, listId, onPick) {
+  const v = $(inputId).value.trim();
+  const box = $(listId);
+  box.style.display = 'block'; box.innerHTML = '<div class="note">探しています…</div>';
+  try {
+    if (/folders\/|[?&]id=|^[\w-]{25,}$/.test(v)) {
+      const f = await resolveFolder(v);
+      box.style.display = 'none'; onPick(f); return;
+    }
+    const list = await findFolders(v);
+    box.innerHTML = list.map(f => `<div data-id="${esc(f.id)}" data-name="${esc(f.name)}">📁 ${esc(f.name)}${f.parentName ? ` <span class="note">（${esc(f.parentName)} 内）</span>` : ''}</div>`).join('');
+    box.onclick = e => {
+      const d = e.target.closest('div[data-id]'); if (!d) return;
+      box.style.display = 'none'; onPick({ id: d.dataset.id, name: d.dataset.name });
+    };
+  } catch (err) { box.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+}
+function setMoveFolder(f) {
+  moveFolder = f; $('moveChip').textContent = '移動先：📁 ' + f.name; $('moveChip').style.display = 'inline-block';
+  $('moveFind').style.display = 'none'; $('moveInput').value = ''; $('moveList').style.display = 'none';
+}
+
+/* ---------- 一括操作 ---------- */
+function confirmDlg(title, msgHtml, names) {
+  return new Promise(resolve => {
+    $('dlgTitle').textContent = title; $('dlgMsg').innerHTML = msgHtml;
+    $('dlgList').innerHTML = names.slice(0, 30).map(n => `<li>${esc(n)}</li>`).join('') + (names.length > 30 ? `<li>…ほか ${names.length - 30} 件</li>` : '');
+    $('dlgYes').onclick = () => { $('dlg').close(); resolve(true); };
+    $('dlgNo').onclick = () => { $('dlg').close(); resolve(false); };
+    $('dlg').showModal();
+  });
+}
+function setBusy(b) {
+  busy = b;
+  ['btnBulkUsage','btnMove','btnTrash','btnSearch','btnRename','btnDup','btnHistClear','btnToPcCopy','btnToPcMove','btnLocalUp','acctSel','btnAddAcct','btnLogout'].forEach(id => $(id).disabled = b);
+  if (!b) $('btnLogout').disabled = !current;
+}
+function finishBulk(label, okCount, fails) {
+  const nameOf = id => nameOfId(id);
+  selected.clear(); $('chkAll').checked = false; renderRows(); setBusy(false);
+  let msg = `${label}：${okCount}件完了`;
+  if (fails.length) {
+    msg += `<br><span class="err">${fails.length}件失敗</span><ul class="err">` +
+      fails.slice(0, 10).map(r => `<li>${esc(nameOf(r.id))}：${esc(r.error)}</li>`).join('') + '</ul>';
+  }
+  status(msg, fails.length ? '' : 'okc');
+}
+// arg は値、または id ごとに値を返す関数
+async function runBulk(action, ids, arg, label, dest) {
+  const done = new Set(); const fails = []; const ops = [];
+  const argOf = id => typeof arg === 'function' ? arg(id) : arg;
+  setBusy(true);
+  let n = 0;
+  await pool(ids, PARALLEL, async id => {
+    const f = files.find(x => x.id === id) || {};
+    const before = { usage: f.usage || '', name: f.name };
+    try {
+      const info = await doAction(action, id, argOf(id));
+      done.add(id);
+      const op = { id, name: f.name || id, kind: action };
+      if (action === 'usage') op.prev = before.usage;
+      if (action === 'rename') { op.prev = before.name; op.name = argOf(id); }
+      if (action === 'move') op.prev = info.prevParents || [];
+      ops.push(op);
+    }
+    catch (e) { fails.push({ id, error: e.message }); }
+    n++; status(`${label}：${n} / ${ids.length} 件…`);
+  });
+  files.forEach(f => {
+    if (!done.has(f.id)) return;
+    if (action === 'usage') f.usage = argOf(f.id) || '';
+    if (action === 'rename') f.name = argOf(f.id);
+    if (action === 'move') { f.parentId = dest.id; f.parentName = dest.name; }
+  });
+  recordHistory(dest ? `${label}（→${dest.name}）` : label, ops);
+  // 表示中のフォルダから出ていったもの・ゴミ箱へ移したものは一覧から外す
+  if (action === 'trash' || (action === 'move' && filterFolder && filterFolder.id !== dest.id)) files = files.filter(f => !done.has(f.id));
+  finishBulk(label, done.size, fails);
+}
+
+/* ---------- 一括リネーム ---------- */
+const WIN_BAD = /[\\/:*?"<>|]|[. ]$/;
+function splitExt(f) {
+  if (f.mimeType && f.mimeType.startsWith('application/vnd.google-apps.')) return [f.name, ''];
+  const i = f.name.lastIndexOf('.');
+  return i > 0 ? [f.name.slice(0, i), f.name.slice(i)] : [f.name, ''];
+}
+function ymd(s, len) {
+  if (!s) return '';
+  const d = new Date(s);
+  return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`.slice(0, len || 8);
+}
+function buildRenames() {
+  const list = files.filter(f => selected.has(f.id));   // 一覧の並び順
+  const find = $('rnFind').value, repl = $('rnRepl').value;
+  const useRe = $('rnRegex').checked, cs = $('rnCase').checked;
+  const tpl = $('rnTpl').value, incExt = $('rnExt').checked;
+  const start = Number($('rnStart').value) || 0;
+  const pad = Math.min(8, Math.max(1, Number($('rnPad').value) || 1));
+  let re = null;
+  if (find) {
+    try { re = new RegExp(useRe ? find : find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g' + (cs ? '' : 'i')); }
+    catch (e) { return { error: '正規表現の書き方が正しくありません：' + e.message }; }
+  }
+  const rows = list.map((f, i) => {
+    const [base, ext] = splitExt(f);
+    let t = incExt ? f.name : base;
+    if (re) t = useRe ? t.replace(re, repl) : t.replace(re, () => repl);
+    let to = tpl.replace(/\{(名前|連番|更新日|作成日|更新年月|用途|フォルダ)\}/g, (_, k) => ({
+      名前: t, 連番: String(start + i).padStart(pad, '0'),
+      更新日: ymd(f.modifiedTime), 作成日: ymd(f.createdTime), 更新年月: ymd(f.modifiedTime, 6),
+      用途: f.usage || '', フォルダ: f.parentName || ''
+    }[k]));
+    if (!incExt) to += ext;
+    return { f, to, err: '', warn: [] };
+  });
+  // 変更後の名前で、同じフォルダ内の重複を調べる（一覧に出ているファイルの範囲）
+  const finalName = new Map(files.map(f => [f.id, f.name]));
+  rows.forEach(r => finalName.set(r.f.id, r.to));
+  const count = new Map();
+  files.forEach(f => { const k = f.parentId + '/' + finalName.get(f.id); count.set(k, (count.get(k) || 0) + 1); });
+  rows.forEach(r => {
+    if (!r.to.trim() || /^\.[^.]*$/.test(r.to) && !incExt && r.to === splitExt(r.f)[1]) r.err = '名前が空になります';
+    else if (r.to.length > 255) r.err = '長すぎます（255文字まで）';
+    if (r.to === r.f.name) r.same = true;
+    if (!r.err && !r.same && count.get(r.f.parentId + '/' + r.to) > 1) r.warn.push('同じフォルダに同名ファイルができます');
+    if (!r.err && !r.same && WIN_BAD.test(r.to)) r.warn.push('PCに保存するとき使えない記号は _ に置き換わります');
+  });
+  return { rows };
+}
+function renderRenamePreview() {
+  const b = buildRenames();
+  if (b.error) { $('rnSummary').innerHTML = `<span class="err">${esc(b.error)}</span>`; $('rnPreview').innerHTML = ''; $('rnYes').disabled = true; return null; }
+  const ch = b.rows.filter(r => !r.same && !r.err).length;
+  const same = b.rows.filter(r => r.same).length, er = b.rows.filter(r => r.err).length, wn = b.rows.filter(r => r.warn.length).length;
+  $('rnSummary').innerHTML = `<strong>変更 ${ch}件</strong>　変更なし ${same}件` + (er ? `　<span class="err">エラー ${er}件（変更しません）</span>` : '') + (wn ? `　<span class="warn">注意 ${wn}件</span>` : '');
+  $('rnPreview').innerHTML = b.rows.slice(0, 300).map(r => `<tr class="${r.same ? 'same' : ''}"><td>${esc(r.f.name)}</td><td>${r.same ? '（変更なし）' : esc(r.to)}</td><td>${r.err ? `<span class="err">${esc(r.err)}</span>` : `<span class="warn">${esc(r.warn.join('／'))}</span>`}</td></tr>`).join('')
+    + (b.rows.length > 300 ? `<tr><td colspan="3" class="note">…ほか ${b.rows.length - 300} 件</td></tr>` : '');
+  $('rnYes').disabled = ch === 0;
+  return b;
+}
+['rnFind','rnRepl','rnRegex','rnCase','rnTpl','rnExt','rnStart','rnPad'].forEach(id => $(id).addEventListener('input', renderRenamePreview));
+$('btnRename').onclick = () => {
+  if (!selected.size) return status('名前を変えるファイルを選んでください', 'err');
+  renderRenamePreview(); $('renDlg').showModal();
+};
+$('rnNo').onclick = () => $('renDlg').close();
+$('rnYes').onclick = () => {
+  const b = renderRenamePreview(); if (!b) return;
+  const map = new Map(b.rows.filter(r => !r.same && !r.err).map(r => [r.f.id, r.to]));
+  $('renDlg').close();
+  if (map.size) runBulk('rename', [...map.keys()], id => map.get(id), '名前の変更');
+};
+
+/* ---------- 重複ファイル ---------- */
+$('btnDup').onclick = () => {
+  if (!files.length) return status('先に検索してください', 'err');
+  const groups = new Map();
+  files.forEach(f => {
+    if (!f.md5) return;
+    const k = f.md5 + ':' + f.size;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(f);
+  });
+  const dups = [...groups.values()].filter(g => g.length > 1);
+  if (!dups.length) return status(`この一覧（${files.length}件）の中に、中身が同じファイルはありません。<br><span class="note">Googleドキュメント形式は比較できません。範囲を広げるときは、フォルダ指定を外して検索し直してください。</span>`, 'okc');
+  files = []; selected.clear();
+  dups.forEach((g, i) => {
+    g.sort((a, b) => (a.createdTime || '') < (b.createdTime || '') ? -1 : 1);
+    g.forEach((f, j) => { f.dup = i + 1; files.push(f); if (j > 0) selected.add(f.id); });
+  });
+  dupMode = true; sortKey = 'dup'; sortDir = 1; $('chkAll').checked = false;
+  renderRows();
+  status(`中身が同じファイルが <strong>${dups.length}組（${files.length}件）</strong>あります。各組で作成日がいちばん古い1件を残し、残りの${selected.size}件を選択しました。<br>確認してから「ゴミ箱へ」「PCへ移動」などを使ってください。名前が違っても中身が同じなら同じ組になります。`, 'okc');
+};
+
+/* ---------- CSV ---------- */
+function fmtDT(s) {
+  if (!s) return '';
+  const d = new Date(s), p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+$('btnCsv').onclick = () => {
+  if (!files.length) return status('一覧が空です', 'err');
+  const q = v => { let t = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; };
+  const head = ['ファイル名','用途','種類','サイズ(バイト)','更新日時','作成日時','フォルダ','URL','ファイルID'];
+  const lines = [head.map(q).join(',')].concat(files.map(f =>
+    [f.name, f.usage, typeLabel(f.mimeType), f.size == null ? '' : f.size, fmtDT(f.modifiedTime), fmtDT(f.createdTime), f.parentName, f.url, f.id].map(q).join(',')));
+  const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `ドライブ一覧_${ymd(new Date().toISOString())}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+
+/* ---------- 操作履歴と元に戻す ---------- */
+const LS_HIST = 'driveSeiri.hist.';
+const HIST_MAX = 30;
+let opHist = [];
+function loadHistory() {
+  opHist = [];
+  if (current) { try { const r = JSON.parse(lsGet(LS_HIST + current)); if (Array.isArray(r)) opHist = r; } catch (e) {} }
+  renderHistory();
+}
+function saveHistory() { if (current) lsSet(LS_HIST + current, JSON.stringify(opHist.slice(0, HIST_MAX))); }
+function recordHistory(label, ops) {
+  if (!current || !ops || !ops.length) return;
+  opHist.unshift({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t: new Date().toISOString(), label, ops, undone: false });
+  opHist = opHist.slice(0, HIST_MAX);
+  saveHistory(); renderHistory();
+}
+function renderHistory() {
+  $('hist').innerHTML = opHist.length ? opHist.map(h => `
+    <div class="litem"><span class="n" title="${esc(h.label)}">${esc(fmtDT(h.t).slice(5))}　${esc(h.label)}　${h.ops.length}件</span>
+    ${h.undone ? '<span class="s">戻し済み</span>' : `<button class="sm" data-h="${esc(h.id)}">元に戻す</button>`}</div>`).join('')
+    : '<div class="note" style="padding:6px">まだありません</div>';
+}
+function undoNote(h) {
+  const k = h.ops[0].kind;
+  if (k === 'trash' && h.ops[0].pcSaved) return 'ドライブのゴミ箱から元の場所に戻します（PCに保存したファイルはそのまま残ります）。';
+  if (k === 'trash') return 'ゴミ箱から元の場所に戻します（ゴミ箱を空にした後は戻せません）。';
+  if (k === 'upload') return 'アップロードしたファイルをドライブのゴミ箱へ移します。';
+  if (k === 'move') return '元のフォルダに戻します。';
+  if (k === 'rename') return '元の名前に戻します。';
+  if (k === 'usage') return '元の用途に戻します。';
+  return '';
+}
+async function undoHistory(hid) {
+  const h = opHist.find(x => x.id === hid);
+  if (!h || h.undone || busy) return;
+  const later = opHist.slice(0, opHist.indexOf(h)).filter(x => !x.undone).length;
+  const warn = later ? `<br><span class="err">この後に${later}回の操作があります。同じファイルを操作していた場合は、その結果も上書きされます。</span>` : '';
+  if (!await confirmDlg('元に戻す', `「${esc(h.label)}」（${h.ops.length}件）を元に戻します。${undoNote(h)}${warn}`, h.ops.map(o => o.name))) return;
+  setBusy(true);
+  const fails = []; let n = 0, ok = 0;
+  await pool(h.ops, PARALLEL, async o => {
+    try {
+      if (o.kind === 'trash') await doAction('untrash', o.id);
+      else if (o.kind === 'upload') await doAction('trash', o.id);
+      else if (o.kind === 'usage') await doAction('usage', o.id, o.prev);
+      else if (o.kind === 'rename') await doAction('rename', o.id, o.prev);
+      else if (o.kind === 'move') await doAction('restoreParents', o.id, o.prev);
+      ok++;
+    } catch (e) { fails.push({ name: o.name, error: e.message }); }
+    n++; status(`元に戻す：${n} / ${h.ops.length} 件…`);
+  });
+  h.undone = true; saveHistory(); renderHistory(); setBusy(false);
+  let msg = `元に戻す：${ok}件完了`;
+  if (fails.length) msg += `<br><span class="err">${fails.length}件失敗</span><ul class="err">` + fails.slice(0, 10).map(f => `<li>${esc(f.name)}：${esc(f.error)}</li>`).join('') + '</ul>';
+  if ($('resultArea').style.display !== 'none') await doSearch();
+  status(msg, fails.length ? '' : 'okc');
+}
+$('hist').addEventListener('click', e => { const b = e.target.closest('button[data-h]'); if (b) undoHistory(b.dataset.h); });
+$('btnHistClear').onclick = async () => {
+  if (!opHist.length) return;
+  if (await confirmDlg('履歴を消す', 'このアカウントの操作履歴を消します。ドライブのファイルは変わりませんが、ここから元に戻せなくなります。', [])) {
+    opHist = []; saveHistory(); renderHistory();
+  }
+};
+
+/* ---------- イベント ---------- */
+$('btnAddAcct').onclick = addAccount;
+$('btnLogout').onclick = logout;
+$('acctSel').onchange = e => { if (e.target.value) switchAccount(e.target.value); };
+
+$('btnSaveClient').onclick = () => {
+  const v = $('clientId').value.trim();
+  if (!/\.apps\.googleusercontent\.com$/.test(v)) { status('クライアントIDの形式が違います（…apps.googleusercontent.com で終わるもの）', 'err'); return; }
+  lsSet(LS_CLIENT, v); status('クライアントIDを保存しました。「Googleでログイン」を押してください。', 'okc');
+  $('setup').open = false;
+};
+
+$('tagList').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  saveTags(TAGS.filter((_, i) => i !== Number(b.dataset.i)));
+});
+$('btnAddTag').onclick = () => {
+  const v = $('newTag').value.trim(); if (!v) return;
+  saveTags(TAGS.concat(v)); $('newTag').value = '';
+};
+
+$('btnFindFolder').onclick = () => showFolderPicker('folderInput', 'folderList', f => { setFilterFolder(f); $('folderInput').value = ''; });
+$('btnClearFolder').onclick = () => { setFilterFolder(null); $('folderList').style.display = 'none'; };
+$('btnPickMove').onclick = () => { $('moveFind').style.display = 'flex'; $('moveInput').focus(); };
+$('btnFindMove').onclick = () => showFolderPicker('moveInput', 'moveList', setMoveFolder);
+$('btnMoveFromTree').onclick = () => { const f = curFolder(); if (f) setMoveFolder(f); };
+
+$('btnSearch').onclick = doSearch;
+$('btnReset').onclick = () => {
+  ['keyword','exclude','modFrom','modTo','creFrom','creTo','sizeMin','sizeMax'].forEach(id => $(id).value = '');
+  document.querySelectorAll('#types input').forEach(i => i.checked = false);
+  $('usageFilter').value = ''; $('ownedByMe').checked = true; $('btnClearFolder').onclick();
+};
+
+document.querySelectorAll('th[data-k]').forEach(th => th.onclick = () => {
+  const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : 1; sortKey = k; sortRows(); renderRows();
+});
+
+$('tbody').addEventListener('change', async e => {
+  const tr = e.target.closest('tr'); if (!tr) return;
+  const id = tr.dataset.id;
+  if (e.target.classList.contains('rc')) {
+    e.target.checked ? selected.add(id) : selected.delete(id);
+    tr.classList.toggle('sel', e.target.checked);
+    $('selCount').textContent = selected.size + '件選択';
+  } else if (e.target.classList.contains('us')) {
+    const f = files.find(x => x.id === id); const prev = f.usage; const val = e.target.value;
+    const mark = tr.querySelector('.saved'); mark.textContent = '保存中…';
+    try {
+      await doAction('usage', id, val);
+      recordHistory('用途の変更', [{ id, name: f.name, kind: 'usage', prev }]);
+      f.usage = val; mark.textContent = '✓';
+      setTimeout(() => { mark.textContent = ''; }, 1500);
+    } catch (err) { e.target.value = prev; mark.textContent = ''; status('用途の保存に失敗：' + esc(err.message), 'err'); }
+  }
+});
+$('chkAll').onchange = e => {
+  selected.clear(); if (e.target.checked) files.forEach(f => selected.add(f.id)); renderRows();
+};
+
+$('btnBulkUsage').onclick = async () => {
+  if (!selected.size) return status('ファイルを選んでください', 'err');
+  const v = $('bulkUsage').value; const val = v === '__clear__' ? '' : v;
+  if (!val && v !== '__clear__') return status('用途を選んでください', 'err');
+  const ids = [...selected];
+  const what = val ? `用途「${esc(val)}」を付けます` : '用途を外します';
+  if (await confirmDlg('用途の一括設定', `${ids.length}件に${what}。`, ids.map(nameOfId))) runBulk('usage', ids, val, '用途の設定');
+};
+$('btnMove').onclick = async () => {
+  if (!selected.size) return status('ファイルを選んでください', 'err');
+  if (!moveFolder) return status('先に「移動先を選ぶ」で移動先フォルダを決めてください（左のツリーへドラッグでも移動できます）', 'err');
+  const ids = [...selected], dest = moveFolder;
+  if (await confirmDlg('一括移動', `${ids.length}件を「${esc(dest.name)}」へ移動します。`, ids.map(nameOfId))) runBulk('move', ids, dest.id, '移動', dest);
+};
+$('btnTrash').onclick = async () => {
+  if (!selected.size) return status('ファイルを選んでください', 'err');
+  const ids = [...selected];
+  if (await confirmDlg('ゴミ箱へ移動', `<strong>${ids.length}件</strong>をゴミ箱へ移動します（アカウント：${esc(current)}）。30日以内ならドライブのゴミ箱から戻せます。`, ids.map(nameOfId))) runBulk('trash', ids, null, 'ゴミ箱へ移動');
+};
+$('btnToPcCopy').onclick = () => toPc(false);
+$('btnToPcMove').onclick = () => toPc(true);
+
+window.addEventListener('beforeunload', e => { if (busy) { e.preventDefault(); e.returnValue = ''; } });
+
+/* ---------- 起動 ---------- */
+$('origin').textContent = location.origin;
+$('clientId').value = getClientId();
+if (!getClientId()) $('setup').open = true;
+if (location.protocol === 'file:') {
+  status('ファイルを直接開いた状態ではGoogleにログインできません。手順書の方法でURLから開いてください。', 'err');
+}
+if (!HAS_FS) {
+  $('pcUnsupported').style.display = 'block'; $('btnPickLocal').disabled = true;
+  $('btnToPcCopy').title = $('btnToPcMove').title = 'PC版のChrome・Edgeで使えます';
+}
+TAGS = loadTags(); renderTags(); renderAccounts(); renderTree(); renderHistory();
+</script>
+</body>
+</html>
