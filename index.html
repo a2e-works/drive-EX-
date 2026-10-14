@@ -6,42 +6,68 @@
 <title>ドライブ整理ツール</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
-  :root { --bd:#d0d7de; --bg:#f6f8fa; --ac:#1a73e8; --dg:#c5221f; --ok:#188038; --tx:#202124; --sub:#5f6368; --base:#fff; --sel:#e8f0fe; }
+  :root { --bd:#d0d7de; --bg:#f6f8fa; --ac:#1a73e8; --dg:#c5221f; --ok:#188038; --tx:#202124; --sub:#5f6368; --base:#fff; --sel:#e8f0fe; --line:#eceff1; }
   * { box-sizing: border-box; }
-  body { font-family: "Yu Gothic UI","Meiryo",sans-serif; margin:0; padding:16px; color:var(--tx); background:var(--base); font-size:14px; }
-  h1 { font-size:18px; margin:0; }
-  h2 { font-size:14px; margin:0; }
-  header { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; justify-content:space-between; margin-bottom:12px; }
-  .acct { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
-  fieldset { border:1px solid var(--bd); border-radius:8px; padding:12px; margin:0 0 12px; }
-  legend { font-weight:bold; padding:0 6px; }
-  details { border:1px solid var(--bd); border-radius:8px; padding:8px 12px; margin-bottom:12px; }
-  summary { cursor:pointer; font-weight:bold; }
-  .grid { display:grid; grid-template-columns: 110px 1fr; gap:8px 12px; align-items:center; }
-  .grid label.h { color:#3c4043; }
-  input[type=text], input[type=date], input[type=number], select { padding:5px 7px; border:1px solid var(--bd); border-radius:6px; font-size:14px; background:#fff; max-width:100%; }
-  input[type=number] { width:90px; }
-  .row { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; }
-  button, .btnlike { padding:6px 12px; border:1px solid var(--bd); border-radius:6px; background:#fff; cursor:pointer; font-size:14px; color:var(--tx); }
+  html, body { height:100%; }
+  body { font-family: "Yu Gothic UI","Meiryo",sans-serif; margin:0; color:var(--tx); background:var(--bg); font-size:14px; display:flex; flex-direction:column; overflow:hidden; }
+  h1 { font-size:16px; margin:0; white-space:nowrap; }
+  h2 { font-size:13px; margin:0; }
+  input[type=text], input[type=date], input[type=number], select { padding:4px 6px; border:1px solid var(--bd); border-radius:6px; font-size:13px; background:#fff; max-width:100%; font-family:inherit; }
+  input[type=number] { width:80px; }
+  .row { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; }
+  button, .btnlike { padding:5px 11px; border:1px solid var(--bd); border-radius:6px; background:#fff; cursor:pointer; font-size:13px; color:var(--tx); font-family:inherit; white-space:nowrap; }
+  button:hover:not(:disabled), .btnlike:hover { background:#f1f3f4; }
   button.pri { background:var(--ac); color:#fff; border-color:var(--ac); }
+  button.pri:hover:not(:disabled) { background:#1765cc; }
   button.dg { background:var(--dg); color:#fff; border-color:var(--dg); }
+  button.dg:hover:not(:disabled) { background:#a50e0e; }
   button.sm { padding:3px 8px; font-size:12px; }
+  button.icon { padding:4px 8px; font-size:15px; line-height:1; }
   button:disabled { opacity:.5; cursor:default; }
   .note { color:var(--sub); font-size:12px; }
-  .chip { display:inline-block; background:var(--sel); color:#1967d2; border-radius:12px; padding:2px 10px; }
-  #status { margin:8px 0; min-height:20px; }
-  .err { color:var(--dg); } .okc { color:var(--ok); }
+  .chip { display:inline-block; background:var(--sel); color:#1967d2; border-radius:12px; padding:2px 10px; font-size:12px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle; }
+  .err { color:var(--dg); } .okc { color:var(--ok); } .warn { color:#b06000; }
 
-  /* 2ペイン */
-  .layout { display:grid; grid-template-columns: 300px minmax(0,1fr); gap:16px; align-items:start; }
-  aside { position:sticky; top:8px; max-height:calc(100vh - 16px); overflow:auto; display:flex; flex-direction:column; gap:12px; }
-  .pane { border:1px solid var(--bd); border-radius:8px; padding:8px; background:var(--base); }
-  .pane > .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:6px; }
+  /* ヘッダー */
+  header.top { flex:none; display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--base); border-bottom:1px solid var(--bd); }
+  header.top .sp { flex:1; }
+  .acct { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  #setup { flex:none; background:var(--base); border-bottom:1px solid var(--bd); padding:8px 14px; }
+  #setup:not([open]) { display:none; }
+  #setup summary { cursor:pointer; font-weight:bold; }
+
+  /* 全体：左サイド＋右の一覧 */
+  .app { flex:1; min-height:0; display:grid; grid-template-columns: 320px minmax(0,1fr); grid-template-rows: minmax(0,1fr); }
+  .app.noside { grid-template-columns: minmax(0,1fr); }
+  .app.noside aside { display:none; }
+  aside { min-height:0; overflow:auto; background:var(--base); border-right:1px solid var(--bd); }
+  aside details { border-bottom:1px solid var(--bd); }
+  aside summary { cursor:pointer; padding:9px 12px; font-weight:bold; font-size:13px; list-style:none; display:flex; align-items:center; gap:6px; user-select:none; }
+  aside summary::-webkit-details-marker { display:none; }
+  aside summary::before { content:'▸'; color:var(--sub); width:10px; }
+  aside details[open] > summary::before { content:'▾'; }
+  aside summary .rt { margin-left:auto; font-weight:normal; }
+  aside summary:hover { background:#f8f9fa; }
+  .sec { padding:4px 12px 12px; }
+
+  /* 絞り込みフォーム（縦積み） */
+  .f { margin-bottom:9px; }
+  .f > label.h { display:block; font-size:12px; color:#3c4043; margin-bottom:3px; font-weight:bold; }
+  .f input[type=text] { width:100%; }
+  .f .two { display:grid; grid-template-columns:1fr auto 1fr; gap:4px; align-items:center; }
+  .f .two input { width:100%; min-width:0; }
+  .f .chk { display:flex; flex-wrap:wrap; gap:2px 10px; font-size:13px; }
+  .f .chk label { white-space:nowrap; }
+  .f .hint { font-size:11px; color:var(--sub); margin-top:3px; line-height:1.4; }
+  .fbtn { position:sticky; bottom:0; background:var(--base); padding:8px 0 2px; display:flex; gap:6px; }
+  .fbtn button { flex:1; }
+  .tags span { display:inline-flex; align-items:center; gap:2px; background:#f1f3f4; border-radius:12px; padding:2px 2px 2px 10px; margin:2px; font-size:12px; }
+  .tags span button { border:none; background:none; padding:0 5px; color:var(--sub); }
 
   /* ツリー */
   ul.tree, ul.tree ul { list-style:none; margin:0; padding-left:14px; }
-  ul.tree { padding-left:0; max-height:45vh; overflow:auto; }
-  .node { display:flex; align-items:center; gap:2px; padding:2px 4px; border-radius:4px; cursor:pointer; white-space:nowrap; }
+  ul.tree { padding-left:0; max-height:40vh; overflow:auto; }
+  .node { display:flex; align-items:center; gap:2px; padding:2px 4px; border-radius:4px; cursor:pointer; white-space:nowrap; font-size:13px; }
   .node:hover { background:#f1f3f4; }
   .node.cur { background:var(--sel); font-weight:bold; }
   .node.drop { outline:2px dashed var(--ac); background:var(--sel); }
@@ -51,54 +77,77 @@
   /* PC */
   .crumbs { font-size:12px; margin:4px 0; word-break:break-all; }
   .crumbs a { color:var(--ac); cursor:pointer; }
-  .llist { max-height:30vh; overflow:auto; border-top:1px solid #eee; }
-  .litem { display:flex; align-items:center; gap:6px; padding:3px 2px; border-bottom:1px solid #f4f4f4; font-size:13px; }
+  .llist { max-height:32vh; overflow:auto; border-top:1px solid var(--line); }
+  .litem { display:flex; align-items:center; gap:6px; padding:3px 2px; border-bottom:1px solid #f4f4f4; font-size:12.5px; }
   .litem .n { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .litem.dir .n { cursor:pointer; color:var(--ac); }
-  .litem .s { color:var(--sub); font-size:12px; white-space:nowrap; }
+  .litem .s { color:var(--sub); font-size:11px; white-space:nowrap; }
   .dropzone { border:2px dashed var(--bd); border-radius:8px; padding:10px; text-align:center; color:var(--sub); font-size:12px; }
   .dropzone.drop { border-color:var(--ac); background:var(--sel); }
 
-  .bulk { position:sticky; top:0; background:var(--bg); border:1px solid var(--bd); border-radius:8px; padding:8px 10px; margin-bottom:8px; z-index:2; }
-  .tablewrap { overflow-x:auto; }
+  /* 右：一覧 */
+  #content { min-height:0; min-width:0; display:flex; flex-direction:column; padding:10px 12px; gap:8px; }
+  #status { flex:none; font-size:13px; min-height:18px; }
+  #status ul { margin:4px 0; }
+  #emptyState { display:none; flex:1; align-items:center; justify-content:center; color:var(--sub); text-align:center; border:2px dashed var(--bd); border-radius:10px; background:var(--base); padding:24px; line-height:1.8; }
+  #resultArea[style*="none"] ~ #emptyState { display:flex; }
+  #resultArea { flex:1; min-height:0; display:flex; flex-direction:column; background:var(--base); border:1px solid var(--bd); border-radius:10px; overflow:hidden; }
+  .bulk { flex:none; padding:8px 10px; border-bottom:1px solid var(--bd); background:#fbfcfd; }
+  .bulk .row { gap:6px; }
+  .bulk .sep { width:1px; height:20px; background:var(--bd); margin:0 2px; }
+  .bulk .grow { flex:1; }
+  .tablewrap { flex:1; min-height:0; overflow:auto; }
   table { border-collapse:collapse; width:100%; }
-  th, td { border-bottom:1px solid #eee; padding:5px 6px; text-align:left; vertical-align:middle; }
-  th { background:var(--bg); cursor:pointer; white-space:nowrap; font-weight:normal; color:#3c4043; }
+  th, td { border-bottom:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:middle; font-size:13px; }
+  thead th { position:sticky; top:0; z-index:1; background:#f1f3f4; cursor:pointer; white-space:nowrap; font-weight:normal; color:#3c4043; padding:7px 8px; }
+  thead th:hover { background:#e8eaed; }
+  thead th.sorted::after { content:' ▾'; color:var(--sub); }
+  thead th.sorted.asc::after { content:' ▴'; }
   td.num { text-align:right; white-space:nowrap; }
   td.dt { white-space:nowrap; }
   td a { color:var(--ac); text-decoration:none; word-break:break-all; }
-  tr.sel { background:var(--sel); }
+  td a:hover { text-decoration:underline; }
+  tbody tr:hover { background:#f8f9fa; }
+  tr.sel, tr.sel:hover { background:var(--sel); }
   tbody tr { cursor:grab; }
-  td select { font-size:13px; padding:2px 4px; }
+  td select { font-size:12px; padding:1px 3px; }
   .saved { color:var(--ok); font-size:12px; margin-left:4px; }
   .folderlist { max-height:220px; overflow:auto; border:1px solid var(--bd); border-radius:6px; margin-top:6px; display:none; background:#fff; }
-  .folderlist div { padding:5px 8px; cursor:pointer; border-bottom:1px solid #f1f3f4; }
+  .folderlist div { padding:5px 8px; cursor:pointer; border-bottom:1px solid #f1f3f4; font-size:13px; }
   .folderlist div:hover { background:var(--sel); }
-  .tags span { display:inline-flex; align-items:center; gap:4px; background:#f1f3f4; border-radius:12px; padding:2px 4px 2px 10px; margin:2px; }
-  .tags span button { border:none; background:none; padding:0 4px; color:var(--sub); }
+
   dialog { border:1px solid var(--bd); border-radius:10px; max-width:560px; width:92%; }
   dialog ul { max-height:240px; overflow:auto; padding-left:20px; font-size:13px; }
-  .locked { opacity:.45; pointer-events:none; }
-  .warn { color:#b06000; }
+  dialog .grid { display:grid; grid-template-columns: 100px 1fr; gap:8px 12px; align-items:center; }
   #rnPreview td { font-size:13px; word-break:break-all; }
   #rnPreview tr.same td { color:var(--sub); }
+  #rnPreview + * , dialog thead th { position:static; }
+  .locked { opacity:.45; pointer-events:none; }
+
   @media (max-width:900px){
-    body{padding:12px;}
-    .layout { grid-template-columns:1fr; }
-    aside { position:static; max-height:none; }
-    .grid { grid-template-columns:1fr; }
-    .bulk { position:static; }
+    body { overflow:auto; display:block; }
+    .app, .app.noside { display:block; }
+    .app.noside aside { display:none; }
+    aside { border-right:none; border-bottom:1px solid var(--bd); }
+    #content { padding:8px; }
+    #resultArea { max-height:none; }
+    .tablewrap { max-height:75vh; }
+    header.top h1 { font-size:14px; }
+    dialog .grid { grid-template-columns:1fr; }
   }
 </style>
 </head>
 <body>
 
-<header>
+<header class="top">
+  <button class="icon" id="btnSide" title="左の欄を隠す／出す">☰</button>
   <h1>ドライブ整理ツール</h1>
+  <span class="sp"></span>
   <div class="acct">
     <select id="acctSel" title="アカウント切替"></select>
     <button id="btnAddAcct" class="pri">アカウントを追加</button>
-    <button id="btnLogout">このアカウントをログアウト</button>
+    <button id="btnLogout">ログアウト</button>
+    <button class="icon" id="btnSetup" title="初期設定（OAuth クライアントID）">⚙</button>
   </div>
 </header>
 
@@ -113,173 +162,188 @@
   クライアントIDの「承認済みの JavaScript 生成元」に、これと同じものを登録してください。</p>
 </details>
 
-<div id="main" class="layout locked">
-<aside>
-  <!-- ドライブのツリー -->
-  <div class="pane">
-    <div class="head"><h2>ドライブ</h2><button class="sm" id="btnTreeReload" title="再読み込み">↻ 更新</button></div>
-    <ul class="tree" id="tree"></ul>
-    <p class="note">フォルダをクリック → 中身を一覧に表示。<br>一覧の行・PCのファイル・エクスプローラーのファイルを、フォルダへドラッグすると移動／アップロードします。</p>
-  </div>
+<div id="main" class="app locked">
+<aside id="side">
+  <!-- 絞り込み -->
+  <details open data-sec="filter">
+    <summary>絞り込み条件 <span class="note rt">すべてAND</span></summary>
+    <div class="sec" id="filterBox">
+      <div class="f">
+        <label class="h" for="keyword">ファイル名</label>
+        <input type="text" id="keyword" placeholder="含む語（例：領収書 2026*.pdf）">
+        <input type="text" id="exclude" placeholder="除外する語（例：*_old.*）" style="margin-top:4px">
+        <div class="hint">スペース区切りで複数。* 任意の文字列、? 任意の1文字（* ? を含む語は名前全体と照合）</div>
+      </div>
+      <div class="f">
+        <label class="h">種類 <span class="note" style="font-weight:normal">未選択＝すべて</span></label>
+        <div class="chk" id="types">
+          <label><input type="checkbox" value="pdf">PDF</label>
+          <label><input type="checkbox" value="image">画像</label>
+          <label><input type="checkbox" value="excel">表計算・CSV</label>
+          <label><input type="checkbox" value="word">文書</label>
+          <label><input type="checkbox" value="text">テキスト</label>
+          <label><input type="checkbox" value="video">動画</label>
+          <label><input type="checkbox" value="zip">ZIP</label>
+        </div>
+      </div>
+      <div class="f">
+        <label class="h">更新日</label>
+        <div class="two"><input type="date" id="modFrom"><span>～</span><input type="date" id="modTo"></div>
+      </div>
+      <div class="f">
+        <label class="h">作成日</label>
+        <div class="two"><input type="date" id="creFrom"><span>～</span><input type="date" id="creTo"></div>
+      </div>
+      <div class="f">
+        <label class="h">サイズ（MB）</label>
+        <div class="two"><input type="number" id="sizeMin" min="0" step="0.1" placeholder="下限"><span>～</span><input type="number" id="sizeMax" min="0" step="0.1" placeholder="上限"></div>
+        <div class="hint">指定するとGoogleドキュメント形式（サイズなし）は対象外</div>
+      </div>
+      <div class="f">
+        <label class="h" for="usageFilter">用途</label>
+        <select id="usageFilter" style="width:100%"></select>
+      </div>
+      <div class="f">
+        <label class="h">フォルダ <span class="note" style="font-weight:normal">直下のみ</span></label>
+        <div id="folderChip" class="chip" style="display:none;margin-bottom:4px"></div>
+        <div class="row" style="gap:4px;flex-wrap:nowrap">
+          <input type="text" id="folderInput" placeholder="フォルダ名・URL" style="flex:1;min-width:0">
+          <button type="button" class="sm" id="btnFindFolder">探す</button>
+          <button type="button" class="sm" id="btnClearFolder">外す</button>
+        </div>
+        <div class="folderlist" id="folderList"></div>
+      </div>
+      <div class="f">
+        <label style="font-size:13px"><input type="checkbox" id="ownedByMe" checked>自分がオーナーのファイルのみ</label>
+      </div>
+      <div class="fbtn">
+        <button class="pri" id="btnSearch">検索（Enter）</button>
+        <button id="btnReset">クリア</button>
+      </div>
+    </div>
+  </details>
 
-  <!-- アップロード設定 -->
-  <div class="pane">
-    <div class="head"><h2>PC → ドライブ</h2></div>
-    <div class="note">アップロード先：<span id="upDest" class="chip">マイドライブ</span></div>
-    <div class="row" style="margin-top:6px">
-      <label class="note">用途
-        <select id="upUsage"></select></label>
-      <label class="note"><input type="checkbox" id="upSkipDup" checked>同名があればスキップ</label>
+  <!-- ドライブのツリー -->
+  <details open data-sec="tree">
+    <summary>ドライブ <button class="sm rt" id="btnTreeReload" title="再読み込み">↻</button></summary>
+    <div class="sec">
+      <ul class="tree" id="tree"></ul>
+      <div class="hint note" style="margin-top:6px">クリックで中身を表示。一覧の行やPCのファイルをフォルダへドラッグすると移動／アップロード。</div>
     </div>
-    <div class="dropzone" id="upZone" style="margin-top:6px">
-      ここにファイルをドロップ<br>
-      <label class="btnlike" style="display:inline-block;margin-top:6px">ファイルを選ぶ<input type="file" id="upInput" multiple hidden></label>
+  </details>
+
+  <!-- アップロード -->
+  <details data-sec="upload">
+    <summary>PC → ドライブ</summary>
+    <div class="sec">
+      <div class="note">アップロード先：<span id="upDest" class="chip">マイドライブ</span></div>
+      <div class="row" style="margin-top:6px">
+        <label class="note">用途 <select id="upUsage"></select></label>
+        <label class="note"><input type="checkbox" id="upSkipDup" checked>同名はスキップ</label>
+      </div>
+      <div class="dropzone" id="upZone" style="margin-top:6px">
+        ここにファイルをドロップ<br>
+        <label class="btnlike" style="display:inline-block;margin-top:6px">ファイルを選ぶ<input type="file" id="upInput" multiple hidden></label>
+      </div>
     </div>
-  </div>
+  </details>
 
   <!-- PCのフォルダ -->
-  <div class="pane" id="pcPane">
-    <div class="head"><h2>PC</h2><button class="sm" id="btnPickLocal">フォルダを選ぶ</button></div>
-    <div id="pcUnsupported" class="note err" style="display:none">このブラウザはPCのフォルダを直接開けません（PC版のChrome・Edgeで使えます）。アップロードは上の「ファイルを選ぶ」でできます。</div>
-    <div id="pcBody" style="display:none">
-      <div class="crumbs" id="crumbs"></div>
-      <div class="row" style="margin-bottom:4px">
-        <label class="note"><input type="checkbox" id="lAll">全選択</label>
-        <button class="sm" id="btnLocalReload">↻</button>
-        <button class="sm pri" id="btnLocalUp">選択をドライブへ</button>
+  <details data-sec="pc" id="pcPane">
+    <summary>PC <button class="sm rt" id="btnPickLocal">フォルダを選ぶ</button></summary>
+    <div class="sec">
+      <div id="pcUnsupported" class="note err" style="display:none">このブラウザはPCのフォルダを直接開けません（PC版のChrome・Edgeで使えます）。アップロードは「PC → ドライブ」の「ファイルを選ぶ」でできます。</div>
+      <div id="pcBody" style="display:none">
+        <div class="crumbs" id="crumbs"></div>
+        <div class="row" style="margin-bottom:4px">
+          <label class="note"><input type="checkbox" id="lAll">全選択</label>
+          <button class="sm" id="btnLocalReload">↻</button>
+          <button class="sm pri" id="btnLocalUp">選択をドライブへ</button>
+        </div>
+        <div class="llist" id="llist"></div>
+        <p class="note">ここが「PCへコピー／移動」の保存先です。</p>
       </div>
-      <div class="llist" id="llist"></div>
-      <p class="note">ここが「PCへコピー／移動」の保存先です。</p>
+      <p class="note" id="pcHint">「フォルダを選ぶ」でPCのフォルダを開きます。</p>
     </div>
-  </div>
+  </details>
 
   <!-- 操作履歴 -->
-  <div class="pane">
-    <div class="head"><h2>操作履歴</h2><button class="sm" id="btnHistClear">履歴を消す</button></div>
-    <div id="hist" class="llist"></div>
-    <p class="note">このブラウザに、アカウントごと直近30回分を残します。「元に戻す」でまとめて戻せます。</p>
-  </div>
+  <details data-sec="hist">
+    <summary>操作履歴 <button class="sm rt" id="btnHistClear">消す</button></summary>
+    <div class="sec">
+      <div id="hist" class="llist"></div>
+      <p class="note">アカウントごと直近30回分。「元に戻す」でまとめて戻せます。</p>
+    </div>
+  </details>
+
+  <!-- 用途の選択肢 -->
+  <details data-sec="tags">
+    <summary>用途の選択肢</summary>
+    <div class="sec">
+      <div class="tags" id="tagList"></div>
+      <div class="row" style="margin-top:6px;gap:4px;flex-wrap:nowrap">
+        <input type="text" id="newTag" placeholder="追加する用途" style="flex:1;min-width:0">
+        <button class="sm" id="btnAddTag">追加</button>
+      </div>
+      <p class="note">全アカウント共通。消してもファイルに付いた用途は残ります。</p>
+    </div>
+  </details>
 </aside>
 
 <div id="content">
-<fieldset>
-  <legend>絞り込み条件（すべてAND）</legend>
-  <div class="grid">
-    <label class="h">ファイル名</label>
-    <div class="row">
-      <input type="text" id="keyword" placeholder="含む語（例：領収書 2026*.pdf）" size="28">
-      <input type="text" id="exclude" placeholder="除外する語（例：*_old.*）" size="16">
-      <span class="note">スペース区切りで複数指定（含む語は全部、除外語はどれか1つ）。* は任意の文字列、? は任意の1文字。* か ? を含む語はファイル名全体と照合、含まない語は部分一致。</span>
-    </div>
+  <div id="status"></div>
 
-    <label class="h">種類</label>
-    <div class="row" id="types">
-      <label><input type="checkbox" value="pdf">PDF</label>
-      <label><input type="checkbox" value="image">画像</label>
-      <label><input type="checkbox" value="excel">Excel・スプレッドシート・CSV</label>
-      <label><input type="checkbox" value="word">Word・ドキュメント</label>
-      <label><input type="checkbox" value="text">テキスト</label>
-      <label><input type="checkbox" value="video">動画</label>
-      <label><input type="checkbox" value="zip">ZIP</label>
-      <span class="note">（未選択＝すべて。複数選択はOR）</span>
-    </div>
-
-    <label class="h">更新日</label>
-    <div class="row"><input type="date" id="modFrom"> ～ <input type="date" id="modTo"></div>
-
-    <label class="h">作成日</label>
-    <div class="row"><input type="date" id="creFrom"> ～ <input type="date" id="creTo"></div>
-
-    <label class="h">サイズ</label>
-    <div class="row">
-      <input type="number" id="sizeMin" min="0" step="0.1" placeholder="下限"> MB ～
-      <input type="number" id="sizeMax" min="0" step="0.1" placeholder="上限"> MB
-      <span class="note">指定するとGoogleドキュメント形式（サイズなし）は対象外</span>
-    </div>
-
-    <label class="h">用途</label>
-    <div class="row"><select id="usageFilter"></select></div>
-
-    <label class="h">フォルダ</label>
-    <div>
+  <div id="resultArea" style="display: none;">
+    <div class="bulk">
       <div class="row">
-        <span id="folderChip" class="chip" style="display:none"></span>
-        <input type="text" id="folderInput" placeholder="フォルダ名・URL・ID" size="26">
-        <button type="button" id="btnFindFolder">探す</button>
-        <button type="button" id="btnClearFolder">指定を外す</button>
-        <span class="note">直下のファイルのみ。左のツリーで選んでも指定されます。</span>
+        <label style="font-size:13px"><input type="checkbox" id="chkAll">全選択</label>
+        <strong id="selCount" style="font-size:13px;min-width:5.5em">0件選択</strong>
+        <span class="sep"></span>
+        <select id="bulkUsage"></select>
+        <button class="sm" id="btnBulkUsage">用途を付ける</button>
+        <span class="sep"></span>
+        <span id="moveChip" class="chip" style="display:none"></span>
+        <button class="sm" id="btnPickMove">移動先…</button>
+        <button class="sm" id="btnMove">移動</button>
+        <span class="sep"></span>
+        <button class="sm" id="btnToPcCopy">PCへコピー</button>
+        <button class="sm" id="btnToPcMove">PCへ移動</button>
+        <span class="sep"></span>
+        <button class="sm" id="btnRename">名前を一括変更</button>
+        <button class="sm" id="btnDup">重複を探す</button>
+        <button class="sm" id="btnCsv">CSV保存</button>
+        <span class="grow"></span>
+        <button class="sm dg" id="btnTrash">ゴミ箱へ</button>
       </div>
-      <div class="folderlist" id="folderList"></div>
+      <div class="row" id="moveFind" style="display:none;margin-top:6px">
+        <input type="text" id="moveInput" placeholder="移動先フォルダ名・URL・ID" size="26">
+        <button class="sm" id="btnFindMove">探す</button>
+        <button class="sm" id="btnMoveFromTree">ツリーで選択中のフォルダにする</button>
+      </div>
+      <div class="folderlist" id="moveList"></div>
     </div>
-
-    <label class="h">オーナー</label>
-    <div class="row"><label><input type="checkbox" id="ownedByMe" checked>自分がオーナーのファイルのみ</label></div>
-  </div>
-  <div class="row" style="margin-top:10px">
-    <button class="pri" id="btnSearch">検索</button>
-    <button id="btnReset">条件をクリア</button>
-  </div>
-</fieldset>
-
-<div id="status"></div>
-
-<div id="resultArea" style="display:none">
-  <div class="bulk">
-    <div class="row">
-      <label><input type="checkbox" id="chkAll">全選択</label>
-      <strong id="selCount">0件選択</strong>
-      <span>｜</span>
-      <select id="bulkUsage"></select>
-      <button id="btnBulkUsage">用途を付ける</button>
-      <span>｜</span>
-      <span id="moveChip" class="chip" style="display:none"></span>
-      <button id="btnPickMove">移動先を選ぶ</button>
-      <button id="btnMove">移動</button>
-      <span>｜</span>
-      <button id="btnToPcCopy">PCへコピー</button>
-      <button id="btnToPcMove">PCへ移動</button>
-      <span>｜</span>
-      <button class="dg" id="btnTrash">ゴミ箱へ</button>
+    <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th style="width:28px"></th>
+        <th data-k="name">ファイル名</th>
+        <th data-k="usage" style="width:120px">用途</th>
+        <th data-k="mimeType" style="width:80px">種類</th>
+        <th data-k="size" style="width:85px">サイズ</th>
+        <th data-k="modifiedTime" style="width:95px">更新日</th>
+        <th data-k="createdTime" style="width:95px">作成日</th>
+        <th data-k="parentName" style="width:140px">フォルダ</th>
+        <th data-k="dup" id="thDup" style="display:none;width:60px">重複</th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
     </div>
-    <div class="row" style="margin-top:6px">
-      <button id="btnRename">名前を一括変更</button>
-      <button id="btnDup">重複を探す</button>
-      <button id="btnCsv">一覧をCSV保存</button>
-    </div>
-    <div class="row" id="moveFind" style="display:none;margin-top:6px">
-      <input type="text" id="moveInput" placeholder="移動先フォルダ名・URL・ID" size="26">
-      <button id="btnFindMove">探す</button>
-      <button id="btnMoveFromTree">ツリーで選択中のフォルダにする</button>
-    </div>
-    <div class="folderlist" id="moveList"></div>
   </div>
-  <div class="tablewrap">
-  <table>
-    <thead><tr>
-      <th style="width:28px"></th>
-      <th data-k="name">ファイル名</th>
-      <th data-k="usage">用途</th>
-      <th data-k="mimeType">種類</th>
-      <th data-k="size">サイズ</th>
-      <th data-k="modifiedTime">更新日</th>
-      <th data-k="createdTime">作成日</th>
-      <th data-k="parentName">フォルダ</th>
-      <th data-k="dup" id="thDup" style="display:none">重複</th>
-    </tr></thead>
-    <tbody id="tbody"></tbody>
-  </table>
-  </div>
-</div>
 
-<fieldset style="margin-top:16px">
-  <legend>用途の選択肢</legend>
-  <div class="tags" id="tagList"></div>
-  <div class="row" style="margin-top:6px">
-    <input type="text" id="newTag" placeholder="追加する用途" size="16">
-    <button id="btnAddTag">追加</button>
-    <span class="note">このブラウザに保存され、全アカウント共通です。選択肢から消しても、ファイルに付いている用途は残ります。</span>
+  <div id="emptyState">
+    <div>左の「絞り込み条件」で検索するか、「ドライブ」のフォルダをクリックすると、<br>ここにファイルの一覧が出ます。</div>
   </div>
-</fieldset>
+
 </div>
 </div>
 
@@ -762,7 +826,7 @@ async function doSearch() {
     files = r.files; selected.clear(); $('chkAll').checked = false; dupMode = false;
     if (sortKey === 'dup') { sortKey = 'modifiedTime'; sortDir = -1; }
     sortRows(); renderRows();
-    $('resultArea').style.display = 'block';
+    $('resultArea').style.display = 'flex';
     let msg = `${files.length}件ヒット（${r.scanned}件を確認）`;
     if (filterFolder) msg = `📁 ${esc(filterFolder.name)} 内：` + msg;
     if (r.truncated) msg += `<br><span class="err">確認件数が上限（${MAX_SCAN}件）に達したため、途中までの結果です。条件を足して絞ってください。</span>`;
@@ -835,7 +899,7 @@ async function pickLocal() {
     const h = await window.showDirectoryPicker({ id: 'driveseiri', mode: 'readwrite' });
     local.stack = [h];
     await loadLocal();
-    $('pcBody').style.display = 'block';
+    $('pcBody').style.display = 'block'; $('pcHint').style.display = 'none'; $('pcPane').open = true;
   } catch (e) {
     if (e.name !== 'AbortError') status('フォルダを開けませんでした：' + esc(e.message), 'err');
   }
@@ -1117,6 +1181,7 @@ function renderRows() {
       <td>${esc(f.parentName)}</td>${dupMode ? `<td>#${f.dup}</td>` : ''}
     </tr>`).join('');
   $('thDup').style.display = dupMode ? '' : 'none';
+  document.querySelectorAll('th[data-k]').forEach(th => { th.classList.toggle('sorted', th.dataset.k === sortKey); th.classList.toggle('asc', th.dataset.k === sortKey && sortDir === 1); });
   $('selCount').textContent = selected.size + '件選択';
 }
 $('tbody').addEventListener('dragstart', e => {
@@ -1478,6 +1543,32 @@ $('btnToPcMove').onclick = () => toPc(true);
 
 window.addEventListener('beforeunload', e => { if (busy) { e.preventDefault(); e.returnValue = ''; } });
 
+/* ---------- 画面の配置 ---------- */
+const LS_UI = 'driveSeiri.ui';
+function loadUi() { try { return JSON.parse(lsGet(LS_UI)) || {}; } catch (e) { return {}; } }
+function saveUi(patch) { lsSet(LS_UI, JSON.stringify(Object.assign(loadUi(), patch))); }
+$('btnSide').onclick = () => { const hide = $('main').classList.toggle('noside'); saveUi({ noside: hide }); };
+$('btnSetup').onclick = () => { $('setup').open = !$('setup').open; if ($('setup').open) $('clientId').focus(); };
+// 見出しの中のボタンを押しても、欄が開閉しないように
+document.querySelectorAll('aside summary button').forEach(b => b.addEventListener('click', e => e.preventDefault(), true));
+// 欄の開閉を覚える／ドラッグ中に見出しに重ねると開く
+document.querySelectorAll('aside details[data-sec]').forEach(d => {
+  d.addEventListener('toggle', () => { const o = loadUi().open || {}; o[d.dataset.sec] = d.open; saveUi({ open: o }); });
+  d.querySelector('summary').addEventListener('dragenter', () => { d.open = true; });
+});
+// 絞り込み欄で Enter を押すと検索
+$('filterBox').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.matches('input') && e.target.id !== 'folderInput' && !e.isComposing) { e.preventDefault(); if (!busy) doSearch(); }
+});
+$('folderInput').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('btnFindFolder').click(); } });
+$('moveInput').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('btnFindMove').click(); } });
+$('newTag').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('btnAddTag').click(); } });
+(function applyUi() {
+  const u = loadUi();
+  if (u.noside) $('main').classList.add('noside');
+  if (u.open) document.querySelectorAll('aside details[data-sec]').forEach(d => { if (d.dataset.sec in u.open) d.open = u.open[d.dataset.sec]; });
+})();
+
 /* ---------- 起動 ---------- */
 $('origin').textContent = location.origin;
 $('clientId').value = getClientId();
@@ -1486,7 +1577,7 @@ if (location.protocol === 'file:') {
   status('ファイルを直接開いた状態ではGoogleにログインできません。手順書の方法でURLから開いてください。', 'err');
 }
 if (!HAS_FS) {
-  $('pcUnsupported').style.display = 'block'; $('btnPickLocal').disabled = true;
+  $('pcUnsupported').style.display = 'block'; $('btnPickLocal').disabled = true; $('pcHint').style.display = 'none';
   $('btnToPcCopy').title = $('btnToPcMove').title = 'PC版のChrome・Edgeで使えます';
 }
 TAGS = loadTags(); renderTags(); renderAccounts(); renderTree(); renderHistory();
