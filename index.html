@@ -41,6 +41,23 @@
   @keyframes indet { 0% { left:-30%; } 100% { left:100%; } }
   body.busy #content .tablewrap, body.busy aside { opacity:.6; pointer-events:none; }
   body.busy { cursor:progress; }
+  .seg { display:inline-flex; border:1px solid var(--bd); border-radius:8px; overflow:hidden; }
+  .seg button { border:none; border-radius:0; padding:5px 12px; background:#fff; }
+  .seg button.on { background:var(--sel); color:#1967d2; font-weight:bold; }
+  #gmailArea { display:none; flex:1; min-height:0; flex-direction:column; gap:8px; }
+  body.gmode #gmailArea { display:flex; }
+  body.gmode #resultArea, body.gmode #emptyState { display:none !important; }
+  body.gmode aside details:not([data-sec=hist]) { display:none; }
+  .gperiod { display:flex; flex-direction:column; gap:6px; background:var(--base); border:1px solid var(--bd); border-radius:10px; padding:8px 10px; }
+  .gperiod .seg button { padding:4px 10px; font-size:12px; }
+  .gsearch { display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; }
+  .gsearch #gq { flex:1 1 320px; }
+  .panel { flex:1; min-height:0; display:flex; flex-direction:column; background:var(--base); border:1px solid var(--bd); border-radius:10px; overflow:hidden; }
+  #gBody td.subj { word-break:break-all; }
+  #gBody td.subj a { color:var(--tx); text-decoration:none; } #gBody td.subj a:hover { text-decoration:underline; }
+  #gBody .snip { color:var(--sub); font-size:12px; }
+  #gBody td.from { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:220px; }
+  #busyBar button { color:var(--tx); }
   #newVer { display:none; background:#fef7e0; border-bottom:1px solid #f9ab00; padding:6px 14px; font-size:13px; }
   #newVer.on { display:flex; align-items:center; gap:10px; }
   .ver { font-size:11px; font-weight:normal; color:var(--sub); background:#f1f3f4; border-radius:10px; padding:1px 7px; margin-left:4px; vertical-align:middle; }
@@ -178,6 +195,7 @@
     header.top h1 { font-size:14px; }
     header.top { flex-wrap:wrap; }
     #btnCam { order:3; flex:1 1 100%; padding:10px; font-size:15px; }
+    .seg { order:4; }
     #quota { order:2; flex:1 1 100%; } #quota .qbar { flex:1; }
     dialog .grid { grid-template-columns:1fr; }
   }
@@ -185,11 +203,12 @@
 </head>
 <body>
 
-<div id="busyBar" role="status" aria-live="polite"><span class="spin"></span><span id="busyText">処理中…</span><span class="pbar"><i id="busyFill"></i></span><span class="note" style="color:#fff">完了までページを閉じないでください</span></div>
+<div id="busyBar" role="status" aria-live="polite"><span class="spin"></span><span id="busyText">処理中…</span><span class="pbar"><i id="busyFill"></i></span><span class="note" style="color:#fff">完了までページを閉じないでください</span><button class="sm" id="busyResume" style="display:none">ログインを更新して続ける</button><button class="sm" id="busyCancel" style="display:none">中止</button></div>
 <div id="newVer"></div>
 <header class="top">
   <button class="icon" id="btnSide" title="左の欄を隠す／出す">☰</button>
   <h1>Googleドライブ整理ツール <span id="appVer" class="ver"></span></h1>
+  <div class="seg" role="tablist"><button id="vDrive" class="on">📁 ドライブ</button><button id="vGmail">✉ Gmail</button></div>
   <button class="pri" id="btnCam" title="スマホのカメラで撮って、ツリーで選んだフォルダへアップロード">📷 撮影してアップ</button>
   <span class="sp"></span>
   <div id="quota" style="display:none" title="">
@@ -215,6 +234,11 @@
     <strong style="font-size:13px">撮影ボタンの動作</strong>
     <label><input type="radio" name="camMode" value="camera" checked>このツールのカメラで撮ってアップ</label>
     <label><input type="radio" name="camMode" value="drive">Googleドライブアプリの「スキャン」を開く</label>
+  </div>
+  <div class="row" style="margin:8px 0">
+    <strong style="font-size:13px">年の区切り</strong>
+    <label><input type="radio" name="yStart" value="1" checked>1月始まり（暦年・確定申告向け）</label>
+    <label><input type="radio" name="yStart" value="4">4月始まり（年度）</label>
   </div>
   <p class="note">このページを開いているURLの生成元：<code id="origin"></code><br>
   クライアントIDの「承認済みの JavaScript 生成元」に、これと同じものを登録してください。</p>
@@ -252,6 +276,13 @@
       <div class="f">
         <label class="h">作成日</label>
         <div class="two"><input type="date" id="creFrom"><span>～</span><input type="date" id="creTo"></div>
+      </div>
+      <div class="f">
+        <label class="h">期間でまとめて指定 <span class="note" style="font-weight:normal">作成日に入ります</span></label>
+        <div class="row" style="gap:4px;flex-wrap:nowrap">
+          <select id="dYear" style="flex:1"></select>
+          <select id="dQ" style="flex:1"><option value="">選ぶ…</option><option value="all">通年</option><option value="1">第1四半期</option><option value="2">第2四半期</option><option value="3">第3四半期</option><option value="4">第4四半期</option><option value="upto">この年以前すべて</option></select>
+        </div>
       </div>
       <div class="f">
         <label class="h">サイズ（MB）</label>
@@ -408,6 +439,52 @@
     </div>
   </div>
 
+  <div id="gmailArea">
+    <div class="gperiod">
+      <div class="row">
+        <span class="note">移動元</span><select id="gSrc"></select>
+        <span>→</span>
+        <span class="note">移動先</span><select id="gDest"></select>
+      </div>
+      <div class="row">
+        <select id="gYear" title="年"></select>
+        <div class="seg" id="gQ">
+          <button data-q="all">通年</button><button data-q="1">第1四半期</button><button data-q="2">第2四半期</button><button data-q="3">第3四半期</button><button data-q="4">第4四半期</button><button data-q="upto" title="選んだ年の終わりまで、それより前の全部">この年以前すべて</button>
+        </div>
+        <span id="gPeriodTxt" class="note"></span>
+        <button class="pri" id="gBatch">この期間をまとめて移動</button>
+        <button class="dg" id="gBatchTrash">この期間をまとめてゴミ箱へ</button>
+      </div>
+    </div>
+    <div class="gsearch">
+      <input type="text" id="gq" placeholder="Gmailの検索条件（例：larger:5M　from:amazon　領収書）">
+      <span class="note">受信日</span><input type="date" id="gFrom"><span>～</span><input type="date" id="gTo">
+      <label class="note"><input type="checkbox" id="gExStar" checked>スター・重要を除く</label>
+      <button class="pri" id="gSearch">検索</button>
+    </div>
+    <div class="panel">
+      <div class="bulk"><div class="row">
+        <label style="font-size:13px"><input type="checkbox" id="gChkAll">ページ内を選択</label>
+        <button class="sm" id="gSelAll">検索結果すべてを選択</button>
+        <strong id="gSelCount" style="font-size:13px">0件選択</strong>
+        <span class="sep"></span>
+        <button class="sm pri" id="gMove">別アカウントへ移動</button>
+        <button class="sm" id="gCopy">コピー</button>
+        <span class="grow"></span>
+        <button class="sm dg" id="gTrash">ゴミ箱へ</button>
+      </div></div>
+      <div class="tablewrap"><table>
+        <thead><tr><th style="width:28px"></th><th style="width:130px">日時</th><th style="width:220px">差出人</th><th>件名</th><th style="width:80px">サイズ</th><th style="width:120px">ラベル</th></tr></thead>
+        <tbody id="gBody"></tbody>
+      </table></div>
+      <div class="pager">
+        <span id="gInfo"></span><span class="grow"></span>
+        <label class="note">表示件数 <select id="gPs"><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option></select></label>
+        <button class="sm" id="gPrev">‹ 前へ</button><span id="gNum" style="min-width:3em;text-align:center"></span><button class="sm" id="gNext">次へ ›</button>
+      </div>
+    </div>
+  </div>
+
   <div id="emptyState">
     <div>左の「絞り込み条件」で検索するか、「ドライブ」のフォルダをクリックすると、<br>ここにファイルの一覧が出ます。</div>
   </div>
@@ -489,7 +566,7 @@
 
 <script>
 'use strict';
-const APP_VERSION = 'v1.2.2';
+const APP_VERSION = 'v1.4.1';
 const APP_DATE = '2026-10-15';
 const $ = id => document.getElementById(id);
 const SCOPE = 'https://www.googleapis.com/auth/drive';
@@ -611,18 +688,21 @@ function gisReady() {
   });
 }
 
-async function requestToken(opts) {
+async function requestToken(opts, scope) {
+  scope = scope || SCOPE;
   const clientId = getClientId();
   if (!clientId) throw new Error('先に「初期設定」でクライアントIDを保存してください。');
   await gisReady();
   return new Promise((resolve, reject) => {
     const tc = google.accounts.oauth2.initTokenClient({
       client_id: clientId,
-      scope: SCOPE,
+      scope: scope,
       callback: r => {
         if (r.error) return reject(new Error(r.error_description || r.error));
-        if (!google.accounts.oauth2.hasGrantedAllScopes(r, SCOPE)) {
-          return reject(new Error('ドライブへのアクセスが許可されていません。ログイン画面でドライブの権限にチェックを入れてください。'));
+        if (!google.accounts.oauth2.hasGrantedAllScopes(r, scope)) {
+          return reject(new Error(scope === SCOPE
+            ? 'ドライブへのアクセスが許可されていません。ログイン画面でドライブの権限にチェックを入れてください。'
+            : 'Gmailへのアクセスが許可されていません。許可画面でGmailの権限にチェックを入れてください。'));
         }
         resolve(r);
       },
@@ -694,6 +774,7 @@ async function switchAccount(email) {
   else if (!treeCur || treeCur.email !== email) treeCur = { email, id: acctTree(email).rootId };
   renderTree(); setUpDest();
   dupMode = false; loadHistory();
+  gmReset();
   renderAccounts();
   loadQuota();
   if (email && !acctTree(email).rootId) {
@@ -1681,7 +1762,9 @@ function setBusy(b) {
   document.body.classList.toggle('busy', b);
   $('busyBar').classList.toggle('on', b);
   if (b) busyProgress($('status').textContent || '処理中…');
-  ['btnBulkUsage','btnMove','btnTrash','btnSearch','btnRename','btnDup','btnHistClear','btnCam','btnCam2','btnToPcCopy','btnToPcMove','btnLocalUp','acctSel','btnAddAcct','btnLogout','btnRefresh','btnPickMove','btnCsv','pgFirst','pgPrev','pgNext','pgLast','pgSize','chkAll'].forEach(id => $(id).disabled = b);
+  ['btnBulkUsage','btnMove','btnTrash','btnSearch','btnRename','btnDup','btnHistClear','btnCam','btnCam2','btnToPcCopy','btnToPcMove','btnLocalUp','acctSel','btnAddAcct','btnLogout','btnRefresh','btnPickMove','btnCsv','pgFirst','pgPrev','pgNext','pgLast','pgSize','chkAll','vDrive','vGmail','gSearch','gSelAll','gChkAll','gMove','gCopy','gTrash','gPrev','gNext','gPs','gDest','gSrc','gYear','gBatch','gBatchTrash','dYear','dQ'].forEach(id => $(id).disabled = b);
+  document.querySelectorAll('#gQ button').forEach(x => { x.disabled = b; });
+  if (!b) { $('busyCancel').style.display = 'none'; $('busyResume').style.display = 'none'; }
   if (!b) { $('btnLogout').disabled = !current; $('btnCam').disabled = !current; }
 }
 function finishBulk(label, okCount, fails) {
@@ -1874,6 +1957,8 @@ function undoNote(h) {
   if (k === 'trash' && h.ops[0].pcSaved) return 'ドライブのゴミ箱から元の場所に戻します（PCに保存したファイルはそのまま残ります）。';
   if (k === 'trash') return 'ゴミ箱から元の場所に戻します（ゴミ箱を空にした後は戻せません）。';
   if (k === 'upload') return 'アップロードしたファイルをドライブのゴミ箱へ移します。';
+  if (k === 'gxfer') return '送り先に取り込んだメールをゴミ箱へ移し、元のメールをゴミ箱へ移していた場合は戻します（送り先のアカウントにもログインが必要です）。';
+  if (k === 'gtrash') return 'Gmailのゴミ箱から元に戻します（ゴミ箱を空にした後は戻せません）。';
   if (k === 'xfer') return '送り先のコピーをゴミ箱へ移し、元のファイルをゴミ箱へ移していた場合は元に戻します（送り先のアカウントにもログインが必要です）。';
   if (k === 'move') return '元のフォルダに戻します。';
   if (k === 'rename') return '元の名前に戻します。';
@@ -1886,7 +1971,11 @@ async function undoHistory(hid) {
   const later = opHist.slice(0, opHist.indexOf(h)).filter(x => !x.undone).length;
   const warn = later ? `<br><span class="err">この後に${later}回の操作があります。同じファイルを操作していた場合は、その結果も上書きされます。</span>` : '';
   if (!await confirmDlg('元に戻す', `「${esc(h.label)}」（${h.ops.length}件）を元に戻します。${undoNote(h)}${warn}`, h.ops.map(o => o.name))) return;
-  try { await ensureTokens([current, ...h.ops.map(o => o.destEmail || o.email)]); } catch (e) { return status('ログインの更新ができませんでした。もう一度ボタンを押してください：' + esc(e.message), 'err'); }
+  const isMail = h.ops[0].kind === 'gxfer' || h.ops[0].kind === 'gtrash';
+  try {
+    if (isMail) { for (const e of new Set([current, ...h.ops.map(o => o.destEmail)].filter(Boolean))) await gmailToken(e, 20 * 60 * 1000); }
+    else await ensureTokens([current, ...h.ops.map(o => o.destEmail || o.email)]);
+  } catch (e) { return status('ログインの更新ができませんでした。もう一度ボタンを押してください：' + esc(e.message), 'err'); }
   setBusy(true);
   const fails = []; let n = 0, ok = 0;
   await pool(h.ops, PARALLEL, async o => {
@@ -1894,6 +1983,11 @@ async function undoHistory(hid) {
       if (o.kind === 'trash') await doAction('untrash', o.id);
       else if (o.kind === 'upload') {
         await api('/files/' + encodeURIComponent(o.id), { fields: 'id' }, { method: 'PATCH', body: JSON.stringify({ trashed: true }) }, o.email || current);
+      } else if (o.kind === 'gtrash') {
+        await gfetch(current, `${GAPI}/messages/${o.id}/untrash`, { method: 'POST' });
+      } else if (o.kind === 'gxfer') {
+        if (o.newId) await gfetch(o.destEmail, `${GAPI}/messages/${o.newId}/trash`, { method: 'POST' });
+        if (o.removed) await gfetch(current, `${GAPI}/messages/${o.id}/untrash`, { method: 'POST' });
       } else if (o.kind === 'xfer') {
         if (o.newId) await api('/files/' + encodeURIComponent(o.newId), { fields: 'id' }, { method: 'PATCH', body: JSON.stringify({ trashed: true }) }, o.destEmail);
         if (o.removed) await doAction('untrash', o.id);
@@ -1908,7 +2002,8 @@ async function undoHistory(hid) {
   h.undone = true; saveHistory(); renderHistory(); setBusy(false); loadQuota();
   let msg = `元に戻す：${ok}件完了`;
   if (fails.length) msg += `<br><span class="err">${fails.length}件失敗</span><ul class="err">` + fails.slice(0, 10).map(f => `<li>${esc(f.name)}：${esc(f.error)}</li>`).join('') + '</ul>';
-  if ($('resultArea').style.display !== 'none') await doSearch();
+  if (isMail) { if (gm.view.length) await gLoadPage(gm.pageIdx); }
+  else if ($('resultArea').style.display !== 'none') await doSearch();
   status(msg, fails.length ? '' : 'okc');
 }
 $('hist').addEventListener('click', e => {
@@ -2145,6 +2240,418 @@ $('pvDlg').addEventListener('keydown', e => {
 });
 $('pvDlg').addEventListener('click', e => { if (e.target === $('pvDlg')) $('pvDlg').close(); });
 
+/* ---------- Gmail ---------- */
+const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.modify';
+const GAPI = 'https://gmail.googleapis.com/gmail/v1/users/me';
+const GUPLOAD = 'https://gmail.googleapis.com/upload/gmail/v1/users/me';
+const gm = { view: [], pageTokens: [null], pageIdx: 0, selected: new Set(), est: 0, query: '', ps: 50 };
+let jobCancel = false;
+
+// Gmail用のログイン（ドライブとは別に、最初に1回だけ許可画面が出る）
+async function gmailToken(email, minLeftMs) {
+  email = email || current;
+  const a = accounts.get(email);
+  if (!a) throw new Error(`${email} はログインしていません`);
+  if (a.gtoken && Date.now() < a.gexp - (minLeftMs || 60000)) return a.gtoken;
+  const key = 'g:' + email;
+  if (tokenRenewing.has(key)) return tokenRenewing.get(key);
+  const p = (async () => {
+    const r = await requestToken({ prompt: a.gtoken ? '' : 'consent', hint: email }, GMAIL_SCOPE);
+    const res = await fetch(GAPI + '/profile', { headers: { Authorization: 'Bearer ' + r.access_token } });
+    if (!res.ok) throw new Error(`Gmailに接続できません(${res.status})。Google CloudでGmail APIを有効にし、「データアクセス」にgmail.modifyを追加したか確認してください`);
+    const prof = await res.json();
+    if (String(prof.emailAddress).toLowerCase() !== email.toLowerCase()) throw new Error(`${email} ではなく ${prof.emailAddress} で許可されました。もう一度 ${email} を選んでください`);
+    a.gtoken = r.access_token; a.gexp = Date.now() + (Number(r.expires_in) || 3600) * 1000;
+    return a.gtoken;
+  })().finally(() => tokenRenewing.delete(key));
+  tokenRenewing.set(key, p);
+  return p;
+}
+async function gfetch(email, url, init) {
+  init = init || {};
+  for (let attempt = 0; ; attempt++) {
+    const tok = await gmailToken(email);
+    const res = await fetch(url, Object.assign({}, init, { headers: Object.assign({ Authorization: 'Bearer ' + tok }, init.headers || {}) }));
+    if (res.ok) return res;
+    let msg = '';
+    try { const j = await res.clone().json(); msg = (j.error && j.error.message) || ''; } catch (e) {}
+    if (res.status === 401 && attempt === 0) { accounts.get(email).gexp = 0; continue; }
+    const rate = res.status === 429 || (res.status === 403 && /rate|limit|quota/i.test(msg)) || res.status >= 500;
+    if (rate && attempt < 5) { await sleep(1000 * Math.pow(2, attempt) + Math.random() * 500); continue; }
+    const err = new Error(`Gmailエラー(${res.status}) ${msg}`); err.status = res.status; throw err;
+  }
+}
+async function gjson(email, path, qs, init) {
+  const res = await gfetch(email, GAPI + path + (qs ? '?' + qs : ''), init);
+  return res.status === 204 ? {} : res.json();
+}
+function qsOf(obj) { return new URLSearchParams(Object.entries(obj).filter(([, v]) => v != null && v !== '')).toString(); }
+
+function gmReset() {
+  gm.view = []; gm.pageTokens = [null]; gm.pageIdx = 0; gm.selected.clear(); gm.est = 0; gm.query = '';
+  renderGmail(); renderGDest();
+}
+function renderGDest() {
+  $('gSrc').innerHTML = [...accounts.keys()].map(e => `<option value="${esc(e)}"${e === current ? ' selected' : ''}>${esc(e)}</option>`).join('') || '<option value="">未ログイン</option>';
+  const others = [...accounts.keys()].filter(e => e !== current);
+  const keep = $('gDest').value || lsGet('driveSeiri.gDest');
+  $('gDest').innerHTML = others.length ? others.map(e => `<option value="${esc(e)}">${esc(e)}</option>`).join('') : '<option value="">（ほかのアカウントを追加してください）</option>';
+  if (others.includes(keep)) $('gDest').value = keep;
+}
+function slashDate(ymd, add) {
+  const p = ymd.split('-').map(Number);
+  const d = new Date(p[0], p[1] - 1, p[2] + (add || 0));
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+function gQuery() {
+  const parts = [];
+  const q = $('gq').value.trim(); if (q) parts.push(q);
+  if ($('gFrom').value) parts.push('after:' + slashDate($('gFrom').value));
+  if ($('gTo').value) parts.push('before:' + slashDate($('gTo').value, 1));
+  if ($('gExStar').checked) parts.push('-is:starred -is:important');
+  return parts.join(' ');
+}
+const LABEL_JA = { INBOX: '受信トレイ', SENT: '送信済み', STARRED: 'スター', IMPORTANT: '重要', UNREAD: '未読', CATEGORY_PROMOTIONS: 'プロモーション', CATEGORY_SOCIAL: 'ソーシャル', CATEGORY_UPDATES: '新着', CATEGORY_FORUMS: 'フォーラム', CATEGORY_PERSONAL: 'メイン' };
+function fromName(f) { const m = String(f || '').match(/^\s*"?([^"<]+?)"?\s*<([^>]+)>/); return m ? m[1] : String(f || ''); }
+
+async function gLoadPage(idx) {
+  setBusy(true); status('Gmailを検索しています…');
+  try {
+    const r = await gjson(current, '/messages', qsOf({ q: gm.query, maxResults: gm.ps, pageToken: gm.pageTokens[idx] || '' }));
+    gm.pageIdx = idx;
+    gm.pageTokens[idx + 1] = r.nextPageToken || null;
+    if (idx === 0) gm.est = r.resultSizeEstimate || 0;
+    const ids = (r.messages || []).map(m => m.id);
+    const view = new Array(ids.length);
+    let n = 0;
+    await pool(ids, 8, async (id, i) => {
+      const m = await gjson(current, '/messages/' + id, 'format=metadata&metadataHeaders=From&metadataHeaders=Subject&fields=id,labelIds,sizeEstimate,internalDate,snippet,payload/headers');
+      const h = {}; ((m.payload || {}).headers || []).forEach(x => { h[x.name.toLowerCase()] = x.value; });
+      view[i] = { id, from: h.from || '', subject: h.subject || '（件名なし）', date: Number(m.internalDate), size: m.sizeEstimate || 0, labels: m.labelIds || [], snippet: m.snippet || '' };
+      n++; if (n % 10 === 0) status(`Gmailを読み込んでいます…（${n} / ${ids.length}）`);
+    });
+    gm.view = view.filter(Boolean);
+    renderGmail();
+    status(`約${gm.est}件見つかりました（${idx + 1}ページ目）。`, 'okc');
+  } catch (e) { status('Gmailの検索に失敗しました：' + esc(e.message), 'err'); }
+  setBusy(false);
+  renderGmail();
+}
+function renderGmail() {
+  const acct = encodeURIComponent(current || '');
+  $('gBody').innerHTML = gm.view.length ? gm.view.map(m => `
+    <tr data-id="${esc(m.id)}" class="${gm.selected.has(m.id) ? 'sel' : ''}">
+      <td><input type="checkbox" class="gc" ${gm.selected.has(m.id) ? 'checked' : ''}></td>
+      <td class="dt">${esc(fmtDT(new Date(m.date).toISOString()))}</td>
+      <td class="from" title="${esc(m.from)}">${esc(fromName(m.from))}</td>
+      <td class="subj"><a href="https://mail.google.com/mail/?authuser=${acct}#all/${esc(m.id)}" target="_blank" rel="noopener">${esc(m.subject)}</a><div class="snip">${esc(m.snippet.slice(0, 80))}</div></td>
+      <td class="num">${fmtSize(m.size)}</td>
+      <td class="note">${esc(m.labels.map(l => LABEL_JA[l]).filter(Boolean).slice(0, 2).join('・'))}</td>
+    </tr>`).join('')
+    : `<tr><td colspan="6" class="note" style="padding:24px;text-align:center">${current ? '上の検索欄に条件を入れて「検索」を押してください。<br>例：受信日を ～2025/12/31 にすると、2025年までのメールが出ます。<br>初めて使うときは、Gmailへのアクセスを許可する画面が出ます。' : 'ログインしてください'}</td></tr>`;
+  const start = gm.pageIdx * gm.ps;
+  $('gInfo').textContent = gm.view.length ? `${start + 1}–${start + gm.view.length} 件目 / 約${gm.est}件` : '';
+  $('gNum').textContent = gm.view.length ? `${gm.pageIdx + 1}` : '';
+  $('gPrev').disabled = busy || gm.pageIdx === 0;
+  $('gNext').disabled = busy || !gm.pageTokens[gm.pageIdx + 1];
+  updateGSel();
+}
+function updateGSel() {
+  $('gSelCount').textContent = gm.selected.size + '件選択';
+  $('gChkAll').checked = gm.view.length > 0 && gm.view.every(m => gm.selected.has(m.id));
+}
+$('gSearch').onclick = () => {
+  if (!current || busy) return;
+  gm.query = gQuery(); gm.pageTokens = [null]; gm.selected.clear();
+  gLoadPage(0);
+};
+$('gq').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('gSearch').click(); } });
+$('gPrev').onclick = () => { if (gm.pageIdx > 0) gLoadPage(gm.pageIdx - 1); };
+$('gNext').onclick = () => { if (gm.pageTokens[gm.pageIdx + 1]) gLoadPage(gm.pageIdx + 1); };
+$('gPs').onchange = e => { gm.ps = Number(e.target.value); if (gm.query || gm.view.length) { gm.pageTokens = [null]; gLoadPage(0); } };
+$('gBody').addEventListener('change', e => {
+  if (!e.target.classList.contains('gc')) return;
+  const tr = e.target.closest('tr'), id = tr.dataset.id;
+  e.target.checked ? gm.selected.add(id) : gm.selected.delete(id);
+  tr.classList.toggle('sel', e.target.checked); updateGSel();
+});
+$('gChkAll').onchange = e => { gm.view.forEach(m => e.target.checked ? gm.selected.add(m.id) : gm.selected.delete(m.id)); renderGmail(); };
+$('gSelAll').onclick = () => {
+  if (!gm.query && !gm.view.length) return status('先に検索してください', 'err');
+  gSelectAllIds();
+};
+async function gSelectAllIds() {
+  try { await gmailToken(current, 20 * 60 * 1000); } catch (e) { status('Gmailのログインができませんでした：' + esc(e.message), 'err'); return false; }
+  setBusy(true); jobCancel = false; $('busyCancel').textContent = '中止'; $('busyCancel').style.display = '';
+  const ids = []; let pt = null;
+  try {
+    do {
+      const r = await gjson(current, '/messages', qsOf({ q: gm.query, maxResults: 500, pageToken: pt || '', fields: 'messages(id),nextPageToken' }));
+      (r.messages || []).forEach(m => ids.push(m.id));
+      pt = r.nextPageToken;
+      status(`該当するメールを数えています…（${ids.length}件）`);
+    } while (pt && !jobCancel && ids.length < 200000);
+    gm.selected = new Set(ids);
+    setBusy(false); renderGmail();
+    status(`検索結果の <strong>${ids.length}件</strong> をすべて選択しました。` + (jobCancel ? '（途中で中止したので一部です）' : ''), 'okc');
+    const cancelled = jobCancel; jobCancel = false;
+    return !cancelled;
+  } catch (e) { setBusy(false); status('数えられませんでした：' + esc(e.message), 'err'); return false; }
+}
+
+// 長い処理の途中でログイン期限が近づいたら、一時停止してボタンで更新してもらう
+let pausePromise = null;
+async function gCheckpoint(emails) {
+  const near = emails.filter(e => { const a = accounts.get(e); return !a.gexp || a.gexp - Date.now() < 4 * 60 * 1000; });
+  if (!near.length) return;
+  if (!pausePromise) {
+    pausePromise = new Promise(resolve => {
+      const queue = near.slice();
+      const btn = $('busyResume');
+      const next = () => {
+        if (!queue.length) { btn.style.display = 'none'; pausePromise = null; resolve(); return; }
+        btn.textContent = `ログインを更新して続ける（${queue[0]}）`; btn.style.display = '';
+        busyProgress('ログインの期限が近づいたので一時停止しています。右のボタンを押すと続きから再開します');
+      };
+      btn.onclick = async () => {
+        try { await gmailToken(queue[0], 55 * 60 * 1000); queue.shift(); } catch (e) { busyProgress('更新できませんでした。もう一度押してください：' + e.message); }
+        next();
+      };
+      next();
+    });
+  }
+  await pausePromise;
+}
+$('busyCancel').onclick = () => { jobCancel = true; $('busyCancel').textContent = '中止しています…'; };
+
+function b64urlToBytes(s) {
+  const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+  const u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u;
+}
+// 「=?UTF-8?B?…?=」形式の件名を読める形に
+function decodeMimeWords(str) {
+  return String(str).replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (all, cs, enc, txt) => {
+    try {
+      let bytes;
+      if (enc.toUpperCase() === 'B') bytes = b64urlToBytes(txt.replace(/\+/g, '-').replace(/\//g, '_'));
+      else { const t = txt.replace(/_/g, ' ').replace(/=([0-9A-Fa-f]{2})/g, (m, h) => String.fromCharCode(parseInt(h, 16))); bytes = Uint8Array.from(t, c => c.charCodeAt(0)); }
+      return new TextDecoder(cs.toLowerCase()).decode(bytes);
+    } catch (e) { return all; }
+  }).replace(/\?=\s+=\?/g, '?==?');
+}
+function subjectFromRaw(bytes) {
+  const head = new TextDecoder('latin1').decode(bytes.slice(0, 16384)).split(/\r?\n\r?\n/)[0];
+  const m = head.match(/^Subject:\s*((?:.*)(?:\r?\n[ \t].*)*)/mi);
+  return m ? decodeMimeWords(m[1].replace(/\r?\n[ \t]+/g, ' ')).trim() : '';
+}
+
+// ラベルを送り先に合わせる（同じ名前のラベルがなければ作る）
+async function gLabelMapper(src, dest) {
+  const sl = await gjson(src, '/labels'), dl = await gjson(dest, '/labels');
+  const srcName = new Map((sl.labels || []).map(l => [l.id, l]));
+  const destByName = new Map((dl.labels || []).filter(l => l.type === 'user').map(l => [l.name, l.id]));
+  const creating = new Map();
+  const SYS_OK = /^(INBOX|UNREAD|STARRED|IMPORTANT|SENT|CATEGORY_[A-Z]+)$/;
+  return async ids => {
+    const out = [];
+    for (const id of ids || []) {
+      if (SYS_OK.test(id)) { out.push(id); continue; }
+      const l = srcName.get(id);
+      if (!l || l.type !== 'user') continue;
+      if (destByName.has(l.name)) { out.push(destByName.get(l.name)); continue; }
+      if (!creating.has(l.name)) creating.set(l.name, (async () => {
+        try {
+          const c = await gjson(dest, '/labels', '', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: l.name, labelListVisibility: 'labelShow', messageListVisibility: 'show' }) });
+          destByName.set(l.name, c.id); return c.id;
+        } catch (e) {
+          const again = await gjson(dest, '/labels');
+          const f = (again.labels || []).find(x => x.name === l.name); if (f) { destByName.set(l.name, f.id); return f.id; }
+          return null;
+        }
+      })());
+      const nid = await creating.get(l.name); if (nid) out.push(nid);
+    }
+    return out;
+  };
+}
+
+async function gTransfer(mode) {
+  const ids = [...gm.selected];
+  if (!ids.length) return status('メールを選んでください', 'err');
+  const src = current, dest = $('gDest').value;
+  if (!dest) return status('送り先のアカウントを「アカウントを追加」でログインしてから選んでください', 'err');
+  const names = ids.map(id => (gm.view.find(m => m.id === id) || {}).subject).filter(Boolean);
+  const msg = `<strong>${ids.length}件</strong>のメールを <strong>${esc(dest)}</strong> のGmailへ${mode === 'move' ? '移動します（取り込めたものだけ、元をGmailのゴミ箱へ）' : 'コピーします（元は残します）'}。<br>
+    <span class="note">日時・差出人・件名・本文・添付・ラベル（同じ名前のラベルを送り先に作ります）・既読／未読はそのまま引き継ぎます。件数が多いと時間がかかります（1万通で30分〜1時間ほど）。途中で中止でき、中止までに処理した分はそのまま残ります。</span>`;
+  if (!await confirmDlg(mode === 'move' ? 'Gmailを別アカウントへ移動' : 'Gmailを別アカウントへコピー', msg, names.slice(0, 30).concat(ids.length > names.length ? [`…ほか（全${ids.length}件）`] : []))) return;
+  try { await gmailToken(src, 20 * 60 * 1000); await gmailToken(dest, 20 * 60 * 1000); }
+  catch (e) { return status('Gmailのログインができませんでした。もう一度押してください：' + esc(e.message), 'err'); }
+  const label = `Gmail ${mode === 'move' ? '別アカウントへ移動' : '別アカウントへコピー'}（→${dest}）`;
+  setBusy(true); jobCancel = false; $('busyCancel').textContent = '中止'; $('busyCancel').style.display = '';
+  let mapLabels;
+  try { mapLabels = await gLabelMapper(src, dest); } catch (e) { setBusy(false); return status('ラベルを読み込めませんでした：' + esc(e.message), 'err'); }
+  const ops = [], fails = []; let n = 0, ok = 0;
+  await pool(ids, 3, async id => {
+    if (jobCancel) return;
+    await gCheckpoint([src, dest]);
+    if (jobCancel) return;
+    let name = (gm.view.find(m => m.id === id) || {}).subject || '';
+    try {
+      const m = await gjson(src, '/messages/' + id, 'format=raw&fields=raw,labelIds');
+      const bytes = b64urlToBytes(m.raw);
+      if (!name) name = subjectFromRaw(bytes) || '（件名なし）';
+      const labelIds = await mapLabels(m.labelIds);
+      const boundary = 'gm' + Math.random().toString(36).slice(2);
+      const body = new Blob([
+        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ labelIds })}\r\n`,
+        `--${boundary}\r\nContent-Type: message/rfc822\r\n\r\n`, bytes, `\r\n--${boundary}--`
+      ]);
+      const res = await gfetch(dest, `${GUPLOAD}/messages/import?uploadType=multipart&internalDateSource=dateHeader&neverMarkSpam=true`, {
+        method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body
+      });
+      const imp = await res.json();
+      const op = { id, name: name.slice(0, 80), kind: 'gxfer', newId: imp.id, destEmail: dest, removed: false };
+      ops.push(op);
+      if (mode === 'move') {
+        try { await gfetch(src, `${GAPI}/messages/${id}/trash`, { method: 'POST' }); op.removed = true; }
+        catch (e) { throw new Error('送り先には取り込みましたが、元をゴミ箱へ移せませんでした：' + e.message); }
+      }
+      ok++;
+    } catch (e) { fails.push({ name: name || id, error: e.message }); }
+    n++; status(`${mode === 'move' ? 'Gmailを移動' : 'Gmailをコピー'}：${n} / ${ids.length} 件…`);
+  });
+  recordHistory(label, ops);
+  const cancelled = jobCancel; jobCancel = false;
+  gm.selected.clear(); setBusy(false); loadQuota();
+  let msgOut = `${label}：${ok}件完了` + (cancelled ? `（途中で中止しました。残り${ids.length - n}件は処理していません）` : '');
+  if (fails.length) msgOut += `<br><span class="err">${fails.length}件失敗</span><ul class="err">` + fails.slice(0, 10).map(f => `<li>${esc(f.name)}：${esc(f.error)}</li>`).join('') + '</ul>';
+  if (mode === 'move' && ok) msgOut += '<br><span class="note">元のメールはGmailのゴミ箱に入っています。容量を空けるには、確認後にGmailの「ゴミ箱を今すぐ空にする」を押してください。</span>';
+  if (gm.query || gm.view.length) await gLoadPage(gm.pageIdx);
+  status(msgOut, fails.length ? '' : 'okc');
+}
+$('gMove').onclick = () => gTransfer('move');
+$('gCopy').onclick = () => gTransfer('copy');
+
+$('gTrash').onclick = async () => {
+  const ids = [...gm.selected];
+  if (!ids.length) return status('メールを選んでください', 'err');
+  const names = ids.map(id => (gm.view.find(m => m.id === id) || {}).subject).filter(Boolean);
+  const per = gPeriod && $('gPeriodTxt').textContent ? `<br>期間：<strong>${esc($('gPeriodTxt').textContent)}</strong>` + ($('gExStar').checked ? '（スター付き・重要は除く）' : '') : '';
+  if (!await confirmDlg('Gmailのゴミ箱へ', `<strong>${ids.length}件</strong>のメールをGmailのゴミ箱へ移します（アカウント：${esc(current)}）。${per}<br>30日以内ならGmailのゴミ箱か、操作履歴の「元に戻す」で戻せます。`, names.slice(0, 30).concat(ids.length > names.length ? [`…ほか（全${ids.length}件）`] : []))) return;
+  try { await gmailToken(current, 20 * 60 * 1000); } catch (e) { return status('Gmailのログインができませんでした：' + esc(e.message), 'err'); }
+  setBusy(true); jobCancel = false; $('busyCancel').textContent = '中止'; $('busyCancel').style.display = '';
+  const ops = [], fails = []; let n = 0;
+  await pool(ids, 6, async id => {
+    if (jobCancel) return;
+    await gCheckpoint([current]);
+    const name = (gm.view.find(m => m.id === id) || {}).subject || 'メール';
+    try { await gfetch(current, `${GAPI}/messages/${id}/trash`, { method: 'POST' }); ops.push({ id, name: name.slice(0, 80), kind: 'gtrash' }); }
+    catch (e) { fails.push({ name, error: e.message }); }
+    n++; status(`Gmailのゴミ箱へ：${n} / ${ids.length} 件…`);
+  });
+  recordHistory('Gmail ゴミ箱へ', ops);
+  jobCancel = false; gm.selected.clear(); setBusy(false);
+  let m = `Gmail ゴミ箱へ：${ops.length}件完了`;
+  if (fails.length) m += `<br><span class="err">${fails.length}件失敗</span><ul class="err">` + fails.slice(0, 10).map(f => `<li>${esc(f.name)}：${esc(f.error)}</li>`).join('') + '</ul>';
+  m += '<br><span class="note">容量を空けるには、Gmailで「ゴミ箱を今すぐ空にする」を押してください。</span>';
+  if (gm.query || gm.view.length) await gLoadPage(gm.pageIdx);
+  status(m, fails.length ? '' : 'okc');
+};
+
+/* ---------- 年・四半期でまとめて ---------- */
+const LS_YSTART = 'driveSeiri.yStart';
+function yStart() { return lsGet(LS_YSTART) === '4' ? 4 : 1; }
+function ymdStr(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+// 年（暦年なら1月〜、年度なら4月〜）と四半期から、開始日・終了日を返す
+function periodRange(year, q) {
+  const sm = yStart();
+  let from, to;
+  if (q === 'upto') return { from: '', to: ymdStr(new Date(year + 1, sm - 1, 0)) };
+  if (q === 'all') { from = new Date(year, sm - 1, 1); to = new Date(year + 1, sm - 1, 0); }
+  else { const k = Number(q) - 1; from = new Date(year, sm - 1 + k * 3, 1); to = new Date(year, sm - 1 + k * 3 + 3, 0); }
+  return { from: ymdStr(from), to: ymdStr(to) };
+}
+function yearLabel(y) { return yStart() === 4 ? `${y}年度` : `${y}年`; }
+function fillYears() {
+  const now = new Date();
+  const cy = yStart() === 4 && now.getMonth() < 3 ? now.getFullYear() - 1 : now.getFullYear();
+  const opts = [];
+  for (let y = cy; y >= cy - 15; y--) opts.push(`<option value="${y}">${yearLabel(y)}</option>`);
+  ['gYear', 'dYear'].forEach(id => { const keep = $(id).value; $(id).innerHTML = opts.join(''); if (keep) $(id).value = keep; if (!$(id).value) $(id).value = String(cy - 1); });
+  document.querySelectorAll('input[name=yStart]').forEach(i => { i.checked = Number(i.value) === yStart(); });
+}
+document.querySelectorAll('input[name=yStart]').forEach(i => i.addEventListener('change', () => { lsSet(LS_YSTART, i.value); fillYears(); gPeriod = null; showPeriod(); }));
+
+// Gmail：期間ボタン
+let gPeriod = null;   // {year, q}
+function showPeriod() {
+  document.querySelectorAll('#gQ button').forEach(b => b.classList.toggle('on', !!gPeriod && b.dataset.q === gPeriod.q));
+  if (!gPeriod) { $('gPeriodTxt').textContent = '年と期間を選ぶと、その期間のメールを表示します'; return; }
+  const rg = periodRange(gPeriod.year, gPeriod.q);
+  $('gPeriodTxt').textContent = `${rg.from ? rg.from.replace(/-/g, '/') : '最初'} ～ ${rg.to.replace(/-/g, '/')}`;
+}
+function applyGPeriod() {
+  if (!gPeriod) return;
+  const rg = periodRange(gPeriod.year, gPeriod.q);
+  $('gFrom').value = rg.from; $('gTo').value = rg.to;
+  showPeriod();
+}
+$('gQ').addEventListener('click', e => {
+  const b = e.target.closest('button[data-q]'); if (!b || busy) return;
+  gPeriod = { year: Number($('gYear').value), q: b.dataset.q };
+  applyGPeriod(); $('gSearch').click();
+});
+$('gYear').onchange = () => { if (gPeriod) { gPeriod.year = Number($('gYear').value); applyGPeriod(); $('gSearch').click(); } };
+$('gSrc').onchange = async e => {
+  if (busy || !e.target.value || e.target.value === current) return;
+  $('acctSel').value = e.target.value; await switchAccount(e.target.value);
+  if (gPeriod) { applyGPeriod(); $('gSearch').click(); }
+};
+$('gDest').onchange = () => lsSet('driveSeiri.gDest', $('gDest').value);
+// 期間を指定して、検索結果をすべて選んで移動まで一度に
+$('gBatch').onclick = async () => {
+  if (busy) return;
+  if (!gPeriod) return status('先に年と「通年」「第1四半期」などを選んでください', 'err');
+  if (!$('gDest').value) return status('移動先のアカウントを「アカウントを追加」でログインしてから選んでください', 'err');
+  gm.query = gQuery(); gm.pageTokens = [null];
+  const ok = await gSelectAllIds();
+  if (!ok) return;
+  if (!gm.selected.size) return status('この期間に該当するメールはありません', 'okc');
+  gTransfer('move');
+};
+
+// 期間を指定して、検索結果をすべて選んでゴミ箱へ
+$('gBatchTrash').onclick = async () => {
+  if (busy) return;
+  if (!gPeriod) return status('先に年と「通年」「この年以前すべて」などを選んでください', 'err');
+  gm.query = gQuery(); gm.pageTokens = [null];
+  const ok = await gSelectAllIds();
+  if (!ok) return;
+  if (!gm.selected.size) return status('この期間に該当するメールはありません', 'okc');
+  $('gTrash').onclick();
+};
+
+// Drive：期間 → 作成日
+function applyDPeriod() {
+  const q = $('dQ').value; if (!q) return;
+  const rg = periodRange(Number($('dYear').value), q);
+  $('creFrom').value = rg.from; $('creTo').value = rg.to;
+}
+$('dQ').onchange = applyDPeriod;
+$('dYear').onchange = applyDPeriod;
+
+function setView(v) {
+  document.body.classList.toggle('gmode', v === 'gmail');
+  $('vDrive').classList.toggle('on', v === 'drive');
+  $('vGmail').classList.toggle('on', v === 'gmail');
+  if (v === 'gmail') { renderGDest(); renderGmail(); }
+  status('');
+}
+$('vDrive').onclick = () => setView('drive');
+$('vGmail').onclick = () => setView('gmail');
+
 /* ---------- 一覧の更新 ---------- */
 // 今の条件で検索し直す（ページと選択はできるだけそのまま）
 $('btnRefresh').onclick = async () => {
@@ -2213,7 +2720,7 @@ if (!HAS_FS) {
   $('pcUnsupported').style.display = 'block'; $('btnPickLocal').disabled = true; $('pcHint').style.display = 'none';
   $('btnToPcCopy').title = $('btnToPcMove').title = 'PC版のChrome・Edgeで使えます';
 }
-TAGS = loadTags(); renderTags(); renderAccounts(); renderTree(); renderHistory(); applyCamMode();
+TAGS = loadTags(); renderTags(); renderAccounts(); renderTree(); renderHistory(); applyCamMode(); renderGmail(); fillYears(); showPeriod();
 </script>
 </body>
 </html>
