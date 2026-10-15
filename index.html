@@ -33,6 +33,12 @@
   header.top .sp { flex:1; }
   #camPrev { display:block; max-width:100%; max-height:45vh; margin:8px auto; border-radius:6px; border:1px solid var(--bd); }
   .acct { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  #quota { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--sub); cursor:default; }
+  #quota .qbar { width:150px; height:8px; border-radius:4px; background:#e8eaed; overflow:hidden; display:flex; }
+  #quota .qbar span { display:block; height:100%; }
+  .q-drv { background:var(--ac); } .q-tr { background:#f9ab00; } .q-oth { background:#9aa0a6; }
+  #quota.warn .q-drv { background:#e37400; } #quota.full .q-drv { background:var(--dg); }
+  #quota.full .qtxt { color:var(--dg); font-weight:bold; }
   #setup { flex:none; background:var(--base); border-bottom:1px solid var(--bd); padding:8px 14px; }
   #setup:not([open]) { display:none; }
   #setup summary { cursor:pointer; font-weight:bold; }
@@ -153,6 +159,7 @@
     header.top h1 { font-size:14px; }
     header.top { flex-wrap:wrap; }
     #btnCam { order:3; flex:1 1 100%; padding:10px; font-size:15px; }
+    #quota { order:2; flex:1 1 100%; } #quota .qbar { flex:1; }
     dialog .grid { grid-template-columns:1fr; }
   }
 </style>
@@ -164,6 +171,10 @@
   <h1>Googleドライブ整理ツール</h1>
   <button class="pri" id="btnCam" title="スマホのカメラで撮って、ツリーで選んだフォルダへアップロード">📷 撮影してアップ</button>
   <span class="sp"></span>
+  <div id="quota" style="display:none" title="">
+    <div class="qbar"><span class="q-drv"></span><span class="q-tr"></span><span class="q-oth"></span></div>
+    <span class="qtxt"></span>
+  </div>
   <div class="acct">
     <select id="acctSel" title="アカウント切替"></select>
     <button id="btnAddAcct" class="pri">アカウントを追加</button>
@@ -623,6 +634,7 @@ async function switchAccount(email) {
   tree.rootId = null; tree.nodes.clear(); tree.cur = null; renderTree(); setUpDest();
   dupMode = false; loadHistory();
   renderAccounts();
+  loadQuota();
   if (email) {
     try { await loadTreeRoot(); } catch (e) { status('フォルダ一覧の読み込みに失敗：' + esc(e.message), 'err'); }
   }
@@ -1171,6 +1183,7 @@ async function uploadItems(items, dest, opts) {
     n++; status(`アップロード：${n} / ${items.length} 件…`);
   });
   recordHistory(`アップロード（→${dest.name}）`, ops);
+  loadQuota();
   setBusy(false);
   let msg = `アップロード：${ok}件完了` + (skip ? `、同名のため${skip}件スキップ` : '');
   if (fails.length) msg += `<br><span class="err">${fails.length}件失敗</span><ul class="err">` + fails.slice(0, 10).map(f => `<li>${esc(f.name)}：${esc(f.error)}</li>`).join('') + '</ul>';
@@ -1435,6 +1448,7 @@ function setBusy(b) {
   if (!b) { $('btnLogout').disabled = !current; $('btnCam').disabled = !current; }
 }
 function finishBulk(label, okCount, fails) {
+  loadQuota();
   const nameOf = id => nameOfId(id);
   selected.clear(); $('chkAll').checked = false; renderRows(); setBusy(false);
   let msg = `${label}：${okCount}件完了`;
@@ -1643,7 +1657,7 @@ async function undoHistory(hid) {
     } catch (e) { fails.push({ name: o.name, error: e.message }); }
     n++; status(`元に戻す：${n} / ${h.ops.length} 件…`);
   });
-  h.undone = true; saveHistory(); renderHistory(); setBusy(false);
+  h.undone = true; saveHistory(); renderHistory(); setBusy(false); loadQuota();
   let msg = `元に戻す：${ok}件完了`;
   if (fails.length) msg += `<br><span class="err">${fails.length}件失敗</span><ul class="err">` + fails.slice(0, 10).map(f => `<li>${esc(f.name)}：${esc(f.error)}</li>`).join('') + '</ul>';
   if ($('resultArea').style.display !== 'none') await doSearch();
@@ -1741,6 +1755,38 @@ $('btnToPcCopy').onclick = () => toPc(false);
 $('btnToPcMove').onclick = () => toPc(true);
 
 window.addEventListener('beforeunload', e => { if (busy) { e.preventDefault(); e.returnValue = ''; } });
+
+/* ---------- 空き容量 ---------- */
+function fmtGB(b) { return b >= 1073741824 ? (b / 1073741824).toFixed(b >= 10737418240 ? 1 : 2) + ' GB' : (b / 1048576).toFixed(0) + ' MB'; }
+async function loadQuota() {
+  const el = $('quota');
+  if (!current) { el.style.display = 'none'; return; }
+  const who = current;
+  try {
+    const q = (await api('/about', { fields: 'storageQuota' })).storageQuota || {};
+    if (who !== current) return;
+    const used = Number(q.usage) || 0, drv = Number(q.usageInDrive) || 0, tr = Number(q.usageInDriveTrash) || 0;
+    const lim = q.limit != null ? Number(q.limit) : null;
+    const oth = Math.max(0, used - drv);           // Gmail・Googleフォトなど
+    const drvLive = Math.max(0, drv - tr);         // ゴミ箱を除いたドライブ
+    el.classList.remove('warn', 'full');
+    if (lim) {
+      const pct = x => Math.min(100, x / lim * 100) + '%';
+      el.querySelector('.q-drv').style.width = pct(drvLive);
+      el.querySelector('.q-tr').style.width = pct(tr);
+      el.querySelector('.q-oth').style.width = pct(oth);
+      const rate = used / lim;
+      if (rate >= 0.9) el.classList.add('full'); else if (rate >= 0.75) el.classList.add('warn');
+      el.querySelector('.qtxt').textContent = `空き ${fmtGB(Math.max(0, lim - used))}（${fmtGB(used)} / ${fmtGB(lim)} 使用）`;
+      el.querySelector('.qbar').style.display = '';
+    } else {
+      el.querySelector('.qbar').style.display = 'none';
+      el.querySelector('.qtxt').textContent = `使用 ${fmtGB(used)}（容量の上限なし）`;
+    }
+    el.title = `内訳\nドライブ：${fmtGB(drvLive)}\nドライブのゴミ箱：${fmtGB(tr)}（ゴミ箱を空にするまで容量を使います）\nGmail・フォトなど：${fmtGB(oth)}` + (lim ? `\n合計：${fmtGB(used)} / ${fmtGB(lim)}` : '');
+    el.style.display = 'flex';
+  } catch (e) { el.style.display = 'none'; }
+}
 
 /* ---------- プレビュー ---------- */
 const prevCache = new Map();            // id+サイズ → 表示用URL（null＝なし）
