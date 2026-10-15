@@ -230,3 +230,13 @@ PowerToysの方が向いていること
 - PowerRename の機能：https://learn.microsoft.com/ja-jp/windows/powertoys/powerrename
 - 右クリックメニューに出ない不具合：https://github.com/microsoft/PowerToys/issues/48951
 - パソコン版ドライブで重複が出る仕組み：https://www.itgenius.com/blog/troubleshooting-google-drive-conflict-folders-why-duplicates-appear-and-how-to-fix-them/
+
+## 更新履歴
+
+バージョンは画面左上のタイトルの横に表示しています（マウスを重ねると更新日）。
+直したときは、`index.html` の先頭近くにある `APP_VERSION` と `APP_DATE` を書き換えます。
+
+| バージョン | 日付 | 内容 |
+|---|---|---|
+| v1.0.0 | 2026-10-15 | 初版公開。条件検索（AND・ワイルドカード）、用途の付与、一括の移動・ゴミ箱・名前変更、重複検出、操作履歴と元に戻す、CSV保存、フォルダツリー、PCとのやり取り、撮影してアップ（ドライブアプリのスキャン切替）、ページ表示、プレビュー、空き容量表示 |
+

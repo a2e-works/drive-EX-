@@ -31,6 +31,7 @@
   /* ヘッダー */
   header.top { flex:none; display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--base); border-bottom:1px solid var(--bd); }
   header.top .sp { flex:1; }
+  .ver { font-size:11px; font-weight:normal; color:var(--sub); background:#f1f3f4; border-radius:10px; padding:1px 7px; margin-left:4px; vertical-align:middle; }
   #camPrev { display:block; max-width:100%; max-height:45vh; margin:8px auto; border-radius:6px; border:1px solid var(--bd); }
   .acct { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
   #quota { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--sub); cursor:default; }
@@ -168,7 +169,7 @@
 
 <header class="top">
   <button class="icon" id="btnSide" title="左の欄を隠す／出す">☰</button>
-  <h1>Googleドライブ整理ツール</h1>
+  <h1>Googleドライブ整理ツール <span id="appVer" class="ver"></span></h1>
   <button class="pri" id="btnCam" title="スマホのカメラで撮って、ツリーで選んだフォルダへアップロード">📷 撮影してアップ</button>
   <span class="sp"></span>
   <div id="quota" style="display:none" title="">
@@ -457,6 +458,8 @@
 
 <script>
 'use strict';
+const APP_VERSION = 'v1.0.0';
+const APP_DATE = '2026-10-15';
 const $ = id => document.getElementById(id);
 const SCOPE = 'https://www.googleapis.com/auth/drive';
 const API = 'https://www.googleapis.com/drive/v3';
@@ -1913,6 +1916,8 @@ $('newTag').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isCom
 
 /* ---------- 起動 ---------- */
 $('origin').textContent = location.origin;
+$('appVer').textContent = APP_VERSION;
+$('appVer').title = `${APP_VERSION}（${APP_DATE} 更新）`;
 $('clientId').value = getClientId();
 if (!getClientId()) $('setup').open = true;
 if (location.protocol === 'file:') {
