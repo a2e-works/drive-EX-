@@ -107,6 +107,7 @@
   .litem .n { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .litem.dir .n { cursor:pointer; color:var(--ac); }
   .litem .s { color:var(--sub); font-size:11px; white-space:nowrap; }
+  .litem .hsel { cursor:pointer; } .litem .hsel:hover { color:var(--ac); text-decoration:underline; }
   .dropzone { border:2px dashed var(--bd); border-radius:8px; padding:10px; text-align:center; color:var(--sub); font-size:12px; }
   .dropzone.drop { border-color:var(--ac); background:var(--sel); }
 
@@ -488,7 +489,7 @@
 
 <script>
 'use strict';
-const APP_VERSION = 'v1.2.0';
+const APP_VERSION = 'v1.2.2';
 const APP_DATE = '2026-10-15';
 const $ = id => document.getElementById(id);
 const SCOPE = 'https://www.googleapis.com/auth/drive';
@@ -625,7 +626,7 @@ async function requestToken(opts) {
         }
         resolve(r);
       },
-      error_callback: e => reject(new Error(e && e.type === 'popup_closed' ? 'ログイン画面が閉じられました。' : 'ログインに失敗しました（' + (e && e.type || '不明') + '）'))
+      error_callback: e => reject(new Error(e && e.type === 'popup_closed' ? 'ログイン画面が閉じられました。「アクセスをブロック」と出た場合は、そのアカウントをGoogle Cloudの「対象」→「テストユーザー」に追加してから、もう一度ログインしてください。' : 'ログインに失敗しました（' + (e && e.type || '不明') + '）'))
     });
     tc.requestAccessToken(opts || {});
   });
@@ -652,11 +653,22 @@ async function addAccount() {
   } catch (e) { status(esc(e.message), 'err'); }
 }
 
-async function token(email) {
+const tokenRenewing = new Map();   // email → ログインし直し中のPromise（同時に何枚も画面を開かない）
+async function token(email, minLeftMs) {
   email = email || current;
   const a = accounts.get(email);
   if (!a) throw new Error(email ? `${email} はログインしていません` : 'アカウントが選ばれていません');
-  if (Date.now() < a.exp - 60000) return a.token;
+  if (Date.now() < a.exp - (minLeftMs || 60000)) return a.token;
+  if (tokenRenewing.has(email)) return tokenRenewing.get(email);
+  const p = renewToken(email, a).finally(() => tokenRenewing.delete(email));
+  tokenRenewing.set(email, p);
+  return p;
+}
+// 一括処理の前に、途中で期限切れにならないよう先にログインを更新しておく（ボタンを押した直後に呼ぶ）
+async function ensureTokens(emails) {
+  for (const e of [...new Set(emails.filter(Boolean))]) await token(e, 20 * 60 * 1000);
+}
+async function renewToken(email, a) {
   const r = await requestToken({ prompt: '', hint: email });
   a.token = r.access_token;
   a.exp = Date.now() + (Number(r.expires_in) || 3600) * 1000;
@@ -999,13 +1011,15 @@ async function uploadBlob(blob, meta, email) {
 async function crossTransfer(ids, dest) {
   const src = current;
   const where = `${esc(dest.email)} の「${esc(dest.path || dest.name)}」`;
+  const lastX = lsGet('driveSeiri.xmode') === 'copy' ? 'copy' : 'move';   // 前回の選択（はじめは「移動」）
   const msg = `${ids.length}件を ${where} へ送ります。<br>
-    <label style="display:block;margin-top:8px"><input type="radio" name="xmode" value="copy" checked> <strong>コピー</strong>（元のファイルは残す）</label>
-    <label style="display:block"><input type="radio" name="xmode" value="move"> <strong>移動</strong>（送れたものだけ、元をゴミ箱へ）</label>
+    <label style="display:block;margin-top:8px"><input type="radio" name="xmode" value="move"${lastX === 'move' ? ' checked' : ''}> <strong>移動</strong>（送れたものだけ、元をゴミ箱へ）</label>
+    <label style="display:block"><input type="radio" name="xmode" value="copy"${lastX === 'copy' ? ' checked' : ''}> <strong>コピー</strong>（元のファイルは残す）</label>
     <span class="note">アカウントをまたぐときは、ファイルを読み込んで送り先に作り直します。名前・作成日・更新日・用途は引き継ぎます。共有設定・コメント・版の履歴は引き継がれません。Googleドキュメント形式は、いったんOffice形式にして送り先でGoogle形式に戻します（フォームなどは送れません）。1ファイル1GBまで。</span>`;
   if (!await confirmDlg('別のアカウントへ送る', msg, ids.map(nameOfId))) return;
-  const mode = (document.querySelector('input[name=xmode]:checked') || {}).value || 'copy';
-  try { await token(dest.email); } catch (e) { return status('送り先アカウントのログインが必要です：' + esc(e.message), 'err'); }
+  const mode = (document.querySelector('input[name=xmode]:checked') || {}).value || 'move';
+  lsSet('driveSeiri.xmode', mode);
+  try { await ensureTokens([src, dest.email]); } catch (e) { return status('ログインの更新ができませんでした（送り先 ' + esc(dest.email) + ' を含む）。もう一度ボタンを押してください：' + esc(e.message), 'err'); }
   const label = mode === 'move' ? '別アカウントへ移動' : '別アカウントへコピー';
   const done = new Set(); const fails = []; const ops = []; let n = 0;
   setBusy(true);
@@ -1331,6 +1345,7 @@ async function toPc(remove) {
     : `${ids.length}件をPCの「${esc(path)}」に保存します。ドライブ側はそのまま残ります。`;
   if (!await confirmDlg(remove ? 'PCへ移動' : 'PCへコピー', msg + '<br><span class="note">同じ名前のファイルがPCにある場合は「(1)」などを付けて保存します。Googleドキュメント形式はWord・Excel・PowerPoint形式に変換します。</span>', ids.map(nameOfId))) return;
 
+  try { await ensureTokens([current]); } catch (e) { return status('ログインの更新ができませんでした。もう一度ボタンを押してください：' + esc(e.message), 'err'); }
   const label = remove ? 'PCへ移動' : 'PCへコピー';
   const reserved = new Set(); const done = new Set(); const fails = []; let n = 0;
   setBusy(true);
@@ -1382,6 +1397,7 @@ async function uploadItems(items, dest, opts) {
   const prev = opts.preview ? `<img id="camPrev" src="${opts.preview}" alt="撮影した写真">` : '';
   if (!await confirmDlg('ドライブへアップロード', `${prev}${items.length}件を「${esc(dest.name)}」へアップロードします（アカウント：${esc(toEmail)}）。${extra}`, names)) return false;
   if (opts.camera && $('camUsage')) { usage = $('camUsage').value; $('upUsage').value = usage; }
+  try { await ensureTokens([toEmail]); } catch (e) { return status('ログインの更新ができませんでした。もう一度ボタンを押してください：' + esc(e.message), 'err'); }
   let ok = 0, skip = 0, n = 0; const fails = []; const ops = [];
   setBusy(true);
   await pool(items, PARALLEL_IO, async it => {
@@ -1479,6 +1495,11 @@ $('btnCam2').onclick = camStart;
 $('status').addEventListener('click', e => {
   if (e.target.closest('[data-act="cam"]')) camStart();
   if (e.target.closest('[data-act="newscan"]')) showNewScans(true);
+  if (e.target.closest('[data-act="selfail"]')) {
+    selected.clear(); lastFailIds.forEach(id => selected.add(id));
+    const i = files.findIndex(f => selected.has(f.id)); if (i >= 0 && pageSize > 0) page = Math.floor(i / pageSize);
+    renderRows();
+  }
 });
 $('camInput').onchange = async e => {
   const f = e.target.files[0];
@@ -1668,14 +1689,18 @@ function finishBulk(label, okCount, fails) {
   const nameOf = id => nameOfId(id);
   selected.clear(); $('chkAll').checked = false; renderRows(); setBusy(false);
   let msg = `${label}：${okCount}件完了`;
+  lastFailIds = fails.map(f => f.id).filter(id => files.some(x => x.id === id));
   if (fails.length) {
     msg += `<br><span class="err">${fails.length}件失敗</span><ul class="err">` +
       fails.slice(0, 10).map(r => `<li>${esc(nameOf(r.id))}：${esc(r.error)}</li>`).join('') + '</ul>';
+    if (lastFailIds.length) msg += `<button class="sm pri" data-act="selfail">失敗した${lastFailIds.length}件を選択（やり直す用）</button>`;
   }
   status(msg, fails.length ? '' : 'okc');
 }
+let lastFailIds = [];
 // arg は値、または id ごとに値を返す関数
 async function runBulk(action, ids, arg, label, dest) {
+  try { await ensureTokens([current]); } catch (e) { return status('ログインの更新ができませんでした。もう一度ボタンを押してください：' + esc(e.message), 'err'); }
   const done = new Set(); const fails = []; const ops = [];
   const argOf = id => typeof arg === 'function' ? arg(id) : arg;
   setBusy(true);
@@ -1840,7 +1865,7 @@ function recordHistory(label, ops) {
 }
 function renderHistory() {
   $('hist').innerHTML = opHist.length ? opHist.map(h => `
-    <div class="litem"><span class="n" title="${esc(h.label)}">${esc(fmtDT(h.t).slice(5))}　${esc(h.label)}　${h.ops.length}件</span>
+    <div class="litem"><span class="n hsel" data-hs="${esc(h.id)}" title="${esc(h.label)}（クリックで対象のファイルを一覧で選択）">${esc(fmtDT(h.t).slice(5))}　${esc(h.label)}　${h.ops.length}件</span>
     ${h.undone ? '<span class="s">戻し済み</span>' : `<button class="sm" data-h="${esc(h.id)}">元に戻す</button>`}</div>`).join('')
     : '<div class="note" style="padding:6px">まだありません</div>';
 }
@@ -1861,6 +1886,7 @@ async function undoHistory(hid) {
   const later = opHist.slice(0, opHist.indexOf(h)).filter(x => !x.undone).length;
   const warn = later ? `<br><span class="err">この後に${later}回の操作があります。同じファイルを操作していた場合は、その結果も上書きされます。</span>` : '';
   if (!await confirmDlg('元に戻す', `「${esc(h.label)}」（${h.ops.length}件）を元に戻します。${undoNote(h)}${warn}`, h.ops.map(o => o.name))) return;
+  try { await ensureTokens([current, ...h.ops.map(o => o.destEmail || o.email)]); } catch (e) { return status('ログインの更新ができませんでした。もう一度ボタンを押してください：' + esc(e.message), 'err'); }
   setBusy(true);
   const fails = []; let n = 0, ok = 0;
   await pool(h.ops, PARALLEL, async o => {
@@ -1885,7 +1911,20 @@ async function undoHistory(hid) {
   if ($('resultArea').style.display !== 'none') await doSearch();
   status(msg, fails.length ? '' : 'okc');
 }
-$('hist').addEventListener('click', e => { const b = e.target.closest('button[data-h]'); if (b) undoHistory(b.dataset.h); });
+$('hist').addEventListener('click', e => {
+  const b = e.target.closest('button[data-h]'); if (b) return undoHistory(b.dataset.h);
+  const l = e.target.closest('[data-hs]'); if (!l || busy) return;
+  // 履歴の行をクリック → その操作の対象ファイルを、今の一覧で選択する
+  const h = opHist.find(x => x.id === l.dataset.hs); if (!h) return;
+  const ids = new Set(h.ops.map(o => o.id));
+  const hit = files.filter(f => ids.has(f.id));
+  selected.clear(); hit.forEach(f => selected.add(f.id));
+  const firstIdx = files.findIndex(f => ids.has(f.id));
+  if (firstIdx >= 0 && pageSize > 0) page = Math.floor(firstIdx / pageSize);
+  if ($('resultArea').style.display !== 'none') renderRows();
+  const miss = h.ops.length - hit.length;
+  status(`「${esc(h.label)}」の対象 ${hit.length}件を選択しました。` + (miss ? `<br><span class="warn">${miss}件は今の一覧にありません（ゴミ箱にある・別のフォルダにある等）。検索条件を広げてから、もう一度クリックしてください。</span>` : ''), hit.length ? 'okc' : '');
+});
 $('btnHistClear').onclick = async () => {
   if (!opHist.length) return;
   if (await confirmDlg('履歴を消す', 'このアカウントの操作履歴を消します。ドライブのファイルは変わりませんが、ここから元に戻せなくなります。', [])) {
