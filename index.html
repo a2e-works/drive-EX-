@@ -31,6 +31,18 @@
   /* ヘッダー */
   header.top { flex:none; display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--base); border-bottom:1px solid var(--bd); }
   header.top .sp { flex:1; }
+  #busyBar { display:none; position:fixed; top:0; left:0; right:0; z-index:200; align-items:center; gap:10px; padding:8px 14px; background:#1a73e8; color:#fff; font-size:13px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+  #busyBar.on { display:flex; }
+  #busyBar .spin { width:16px; height:16px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:spin .8s linear infinite; flex:none; }
+  #busyBar .pbar { flex:1; max-width:420px; height:6px; background:rgba(255,255,255,.3); border-radius:3px; overflow:hidden; position:relative; }
+  #busyBar .pbar i { position:absolute; left:0; top:0; bottom:0; width:0; background:#fff; border-radius:3px; transition:width .2s; }
+  #busyBar .pbar.indet i { width:30% !important; animation:indet 1.2s ease-in-out infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @keyframes indet { 0% { left:-30%; } 100% { left:100%; } }
+  body.busy #content .tablewrap, body.busy aside { opacity:.6; pointer-events:none; }
+  body.busy { cursor:progress; }
+  #newVer { display:none; background:#fef7e0; border-bottom:1px solid #f9ab00; padding:6px 14px; font-size:13px; }
+  #newVer.on { display:flex; align-items:center; gap:10px; }
   .ver { font-size:11px; font-weight:normal; color:var(--sub); background:#f1f3f4; border-radius:10px; padding:1px 7px; margin-left:4px; vertical-align:middle; }
   #camPrev { display:block; max-width:100%; max-height:45vh; margin:8px auto; border-radius:6px; border:1px solid var(--bd); }
   .acct { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
@@ -172,6 +184,8 @@
 </head>
 <body>
 
+<div id="busyBar" role="status" aria-live="polite"><span class="spin"></span><span id="busyText">処理中…</span><span class="pbar"><i id="busyFill"></i></span><span class="note" style="color:#fff">完了までページを閉じないでください</span></div>
+<div id="newVer"></div>
 <header class="top">
   <button class="icon" id="btnSide" title="左の欄を隠す／出す">☰</button>
   <h1>Googleドライブ整理ツール <span id="appVer" class="ver"></span></h1>
@@ -341,6 +355,7 @@
   <div id="resultArea" style="display: none;">
     <div class="bulk">
       <div class="row">
+        <button class="sm" id="btnRefresh" title="今の条件で一覧を読み込み直す">↻ 更新</button>
         <label style="font-size:13px" title="このページの行をすべて選択"><input type="checkbox" id="chkAll">ページ内を選択</label>
         <strong id="selCount" style="font-size:13px;min-width:5.5em">0件選択</strong>
         <span class="sep"></span>
@@ -473,7 +488,7 @@
 
 <script>
 'use strict';
-const APP_VERSION = 'v1.1.0';
+const APP_VERSION = 'v1.2.0';
 const APP_DATE = '2026-10-15';
 const $ = id => document.getElementById(id);
 const SCOPE = 'https://www.googleapis.com/auth/drive';
@@ -529,7 +544,18 @@ function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 /* ---------- 表示補助 ---------- */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function qEsc(s) { return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
-function status(msg, cls) { $('status').innerHTML = msg ? `<span class="${cls||''}">${msg}</span>` : ''; }
+function status(msg, cls) {
+  $('status').innerHTML = msg ? `<span class="${cls||''}">${msg}</span>` : '';
+  if (busy && msg) busyProgress(String(msg).replace(/<[^>]*>/g, ''));
+}
+// 処理中の帯：「n / 全体」があれば進み具合のバー、なければ動き続けるバー
+function busyProgress(text) {
+  $('busyText').textContent = text;
+  const m = text.match(/(\d+)\s*\/\s*(\d+)/);
+  const bar = document.querySelector('#busyBar .pbar');
+  if (m && Number(m[2]) > 0) { bar.classList.remove('indet'); $('busyFill').style.width = Math.min(100, Number(m[1]) / Number(m[2]) * 100) + '%'; }
+  else bar.classList.add('indet');
+}
 function fmtSize(b) {
   if (b == null) return '-';
   if (b < 1024) return b + ' B';
@@ -1631,7 +1657,10 @@ function confirmDlg(title, msgHtml, names) {
 }
 function setBusy(b) {
   busy = b;
-  ['btnBulkUsage','btnMove','btnTrash','btnSearch','btnRename','btnDup','btnHistClear','btnCam','btnCam2','btnToPcCopy','btnToPcMove','btnLocalUp','acctSel','btnAddAcct','btnLogout'].forEach(id => $(id).disabled = b);
+  document.body.classList.toggle('busy', b);
+  $('busyBar').classList.toggle('on', b);
+  if (b) busyProgress($('status').textContent || '処理中…');
+  ['btnBulkUsage','btnMove','btnTrash','btnSearch','btnRename','btnDup','btnHistClear','btnCam','btnCam2','btnToPcCopy','btnToPcMove','btnLocalUp','acctSel','btnAddAcct','btnLogout','btnRefresh','btnPickMove','btnCsv','pgFirst','pgPrev','pgNext','pgLast','pgSize','chkAll'].forEach(id => $(id).disabled = b);
   if (!b) { $('btnLogout').disabled = !current; $('btnCam').disabled = !current; }
 }
 function finishBulk(label, okCount, fails) {
@@ -2076,6 +2105,34 @@ $('pvDlg').addEventListener('keydown', e => {
   if (e.key === 'ArrowRight') { e.preventDefault(); showPreview(pvIdx + 1); }
 });
 $('pvDlg').addEventListener('click', e => { if (e.target === $('pvDlg')) $('pvDlg').close(); });
+
+/* ---------- 一覧の更新 ---------- */
+// 今の条件で検索し直す（ページと選択はできるだけそのまま）
+$('btnRefresh').onclick = async () => {
+  if (busy) return;
+  const keepPage = page, keepSel = new Set(selected);
+  await doSearch();
+  page = keepPage;
+  files.forEach(f => { if (keepSel.has(f.id)) selected.add(f.id); });
+  renderRows();
+};
+
+/* ---------- 新しい版のお知らせ ---------- */
+async function checkNewVersion() {
+  if (location.protocol === 'file:') return;
+  try {
+    const res = await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' });
+    const m = (await res.text()).match(/const APP_VERSION = '([^']+)'/);
+    if (m && m[1] !== APP_VERSION) {
+      $('newVer').innerHTML = `新しい版 <strong>${esc(m[1])}</strong> が公開されています（今は ${esc(APP_VERSION)}）。 <button class="sm pri" id="btnReloadApp">読み込み直す</button>`;
+      $('newVer').classList.add('on');
+      $('btnReloadApp').onclick = () => { if (busy) return status('処理が終わってから押してください', 'err'); location.reload(); };
+    }
+  } catch (e) {}
+}
+setTimeout(checkNewVersion, 3000);
+setInterval(checkNewVersion, 30 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkNewVersion(); });
 
 /* ---------- 画面の配置 ---------- */
 const LS_UI = 'driveSeiri.ui';
