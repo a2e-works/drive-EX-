@@ -98,6 +98,23 @@
   .bulk .sep { width:1px; height:20px; background:var(--bd); margin:0 2px; }
   .bulk .grow { flex:1; }
   .tablewrap { flex:1; min-height:0; overflow:auto; }
+  .nmcell { display:flex; align-items:center; gap:4px; }
+  button.eye { border:none; background:none; padding:0 3px; font-size:14px; line-height:1; opacity:.45; cursor:pointer; flex:none; }
+  tr:hover button.eye, button.eye:focus { opacity:1; }
+  #hoverPrev { position:fixed; z-index:50; display:none; background:#fff; border:1px solid var(--bd); border-radius:8px; box-shadow:0 6px 24px rgba(0,0,0,.18); padding:6px; width:340px; pointer-events:none; }
+  #hoverPrev .box { height:240px; display:flex; align-items:center; justify-content:center; background:#f1f3f4; border-radius:4px; overflow:hidden; color:var(--sub); font-size:12px; }
+  #hoverPrev img { max-width:100%; max-height:100%; display:block; }
+  #hoverPrev .cap { font-size:12px; margin-top:4px; word-break:break-all; }
+  dialog#pvDlg { max-width:min(1100px,96vw); width:96vw; height:92vh; padding:0; display:none; flex-direction:column; }
+  dialog#pvDlg[open] { display:flex; }
+  .pvhead, .pvfoot { flex:none; display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--bd); }
+  .pvfoot { border-bottom:none; border-top:1px solid var(--bd); }
+  .pvhead strong { word-break:break-all; font-size:14px; }
+  .pvbody { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; background:#202124; color:#e8eaed; overflow:auto; }
+  .pvbody img { max-width:100%; max-height:100%; object-fit:contain; display:block; }
+  .pager { flex:none; display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; padding:6px 10px; border-top:1px solid var(--bd); background:#fbfcfd; font-size:13px; }
+  .pager .grow { flex:1; }
+  #selAllHint button { margin-left:6px; }
   table { border-collapse:collapse; width:100%; }
   th, td { border-bottom:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:middle; font-size:13px; }
   thead th { position:sticky; top:0; z-index:1; background:#f1f3f4; cursor:pointer; white-space:nowrap; font-weight:normal; color:#3c4043; padding:7px 8px; }
@@ -307,7 +324,7 @@
   <div id="resultArea" style="display: none;">
     <div class="bulk">
       <div class="row">
-        <label style="font-size:13px"><input type="checkbox" id="chkAll">全選択</label>
+        <label style="font-size:13px" title="このページの行をすべて選択"><input type="checkbox" id="chkAll">ページ内を選択</label>
         <strong id="selCount" style="font-size:13px;min-width:5.5em">0件選択</strong>
         <span class="sep"></span>
         <select id="bulkUsage"></select>
@@ -349,6 +366,19 @@
       <tbody id="tbody"></tbody>
     </table>
     </div>
+    <div class="pager">
+      <span id="pgInfo"></span>
+      <span id="selAllHint"></span>
+      <span class="grow"></span>
+      <label class="note">表示件数
+        <select id="pgSize"><option value="25">25</option><option value="50">50</option><option value="100">100</option><option value="200">200</option><option value="0">すべて</option></select>
+      </label>
+      <button class="sm" id="pgFirst" title="最初のページ">«</button>
+      <button class="sm" id="pgPrev">‹ 前へ</button>
+      <span id="pgNum" style="min-width:4.5em;text-align:center"></span>
+      <button class="sm" id="pgNext">次へ ›</button>
+      <button class="sm" id="pgLast" title="最後のページ">»</button>
+    </div>
   </div>
 
   <div id="emptyState">
@@ -385,6 +415,22 @@
   <div class="row" style="justify-content:flex-end;margin-top:8px">
     <button id="rnNo">やめる</button>
     <button class="pri" id="rnYes">変更する</button>
+  </div>
+</dialog>
+
+<div id="hoverPrev"><div class="box"></div><div class="cap"></div></div>
+
+<dialog id="pvDlg">
+  <div class="pvhead">
+    <strong id="pvName"></strong><span style="flex:1"></span>
+    <a id="pvOpen" class="btnlike" target="_blank" rel="noopener" style="text-decoration:none">Googleで開く</a>
+    <button id="pvClose" title="閉じる（Esc）">✕</button>
+  </div>
+  <div class="pvbody" id="pvBody"></div>
+  <div class="pvfoot">
+    <button id="pvPrev">‹ 前（←）</button>
+    <span id="pvMeta" class="note" style="flex:1;text-align:center"></span>
+    <button id="pvNext">次（→） ›</button>
   </div>
 </dialog>
 
@@ -444,6 +490,7 @@ let moveFolder = null;       // {id,name}
 let sortKey = 'modifiedTime', sortDir = -1;
 let busy = false;
 let dupMode = false;              // 重複表示中か
+let page = 0, pageSize = 25;      // 一覧のページ（pageSize 0 = すべて）
 const tree = { rootId: null, nodes: new Map(), cur: null };   // ドライブのツリー
 const local = { stack: [], entries: [], sel: new Set() };     // PCのフォルダ
 
@@ -798,7 +845,7 @@ async function search(c) {
       pageSize: 1000,
       pageToken: pageToken,
       orderBy: 'modifiedTime desc',
-      fields: 'nextPageToken, files(id,name,mimeType,size,md5Checksum,modifiedTime,createdTime,parents,properties,webViewLink,ownedByMe)'
+      fields: 'nextPageToken, files(id,name,mimeType,size,md5Checksum,modifiedTime,createdTime,parents,properties,webViewLink,ownedByMe,thumbnailLink)'
     });
     for (const f of (res.files || [])) {
       scanned++;
@@ -815,7 +862,7 @@ async function search(c) {
         id: f.id, name: f.name, mimeType: f.mimeType, size: size,
         modifiedTime: f.modifiedTime, createdTime: f.createdTime,
         parentId: (f.parents || [])[0] || '', parentName: '',
-        usage: usage, url: f.webViewLink, ownedByMe: f.ownedByMe, md5: f.md5Checksum || ''
+        usage: usage, url: f.webViewLink, ownedByMe: f.ownedByMe, md5: f.md5Checksum || '', thumb: f.thumbnailLink || ''
       });
     }
     pageToken = res.nextPageToken;
@@ -836,7 +883,7 @@ async function doSearch() {
   setBusy(true); status('検索しています…');
   try {
     const r = await search(c);
-    files = r.files; selected.clear(); $('chkAll').checked = false; dupMode = false;
+    files = r.files; selected.clear(); $('chkAll').checked = false; dupMode = false; page = 0;
     if (sortKey === 'dup') { sortKey = 'modifiedTime'; sortDir = -1; }
     sortRows(); renderRows();
     $('resultArea').style.display = 'flex';
@@ -1182,7 +1229,7 @@ async function showNewScans(manual) {
     try {
       const r = await search({ types: [], keyword: '', exclude: '', modFrom: '', modTo: '', creFrom: '', creTo: '', sizeMinMB: '', sizeMaxMB: '', usage: '', folderId: '', ownedByMe: true, createdAfter: since });
       if (r.files.length) {
-        files = r.files; dupMode = false; sortKey = 'createdTime'; sortDir = -1; sortRows();
+        files = r.files; dupMode = false; page = 0; sortKey = 'createdTime'; sortDir = -1; sortRows();
         selected.clear(); files.forEach(f => selected.add(f.id)); $('chkAll').checked = true;
         $('resultArea').style.display = 'flex'; renderRows();
         status(`ドライブアプリで追加されたファイルが <strong>${files.length}件</strong> あります（選択済み）。上の帯から用途を付けたり、移動したりできます。 <button class="sm" data-act="newscan">もう一度確認</button>`, 'okc');
@@ -1278,11 +1325,32 @@ function sortRows() {
     return (x > y ? 1 : x < y ? -1 : 0) * sortDir;
   });
 }
+function pageView() {
+  const total = files.length;
+  const ps = pageSize > 0 ? pageSize : Math.max(total, 1);
+  const pages = Math.max(1, Math.ceil(total / ps));
+  if (page >= pages) page = pages - 1;
+  if (page < 0) page = 0;
+  const start = page * ps;
+  return { total, ps, pages, start, view: files.slice(start, start + ps) };
+}
+function updateSelUi() {
+  const v = pageView();
+  $('selCount').textContent = selected.size + '件選択';
+  $('chkAll').checked = v.view.length > 0 && v.view.every(f => selected.has(f.id));
+  let h = '';
+  if (v.total > v.view.length) {
+    if (selected.size === v.total) h = `<span class="note">検索結果の全${v.total}件を選択中</span><button class="sm" data-sel="none">選択を解除</button>`;
+    else if ($('chkAll').checked) h = `<button class="sm" data-sel="all">検索結果すべて（${v.total}件）を選択</button>`;
+  }
+  $('selAllHint').innerHTML = h;
+}
 function renderRows() {
-  $('tbody').innerHTML = files.map(f => `
+  const v = pageView();
+  $('tbody').innerHTML = v.view.map(f => `
     <tr data-id="${esc(f.id)}" class="${selected.has(f.id) ? 'sel' : ''}" draggable="true">
       <td><input type="checkbox" class="rc" ${selected.has(f.id) ? 'checked' : ''}${f.ownedByMe ? '' : ' title="自分がオーナーではありません"'}></td>
-      <td><a href="${esc(f.url)}" target="_blank" rel="noopener" draggable="false">${esc(f.name)}</a></td>
+      <td><div class="nmcell"><button class="eye" data-eye title="プレビュー">👁</button><a href="${esc(f.url)}" target="_blank" rel="noopener" draggable="false" data-hov>${esc(f.name)}</a></div></td>
       <td><select class="us">${usageOptions(f.usage, true)}</select><span class="saved"></span></td>
       <td>${esc(typeLabel(f.mimeType))}</td>
       <td class="num">${fmtSize(f.size)}</td>
@@ -1292,8 +1360,28 @@ function renderRows() {
     </tr>`).join('');
   $('thDup').style.display = dupMode ? '' : 'none';
   document.querySelectorAll('th[data-k]').forEach(th => { th.classList.toggle('sorted', th.dataset.k === sortKey); th.classList.toggle('asc', th.dataset.k === sortKey && sortDir === 1); });
-  $('selCount').textContent = selected.size + '件選択';
+  $('pgInfo').textContent = v.total ? `${v.start + 1}–${v.start + v.view.length} 件目 / 全${v.total}件` : '0件';
+  $('pgNum').textContent = `${page + 1} / ${v.pages}`;
+  $('pgFirst').disabled = $('pgPrev').disabled = page === 0;
+  $('pgNext').disabled = $('pgLast').disabled = page >= v.pages - 1;
+  updateSelUi();
 }
+function goPage(p) { page = p; renderRows(); document.querySelector('.tablewrap').scrollTop = 0; }
+$('pgFirst').onclick = () => goPage(0);
+$('pgPrev').onclick = () => goPage(page - 1);
+$('pgNext').onclick = () => goPage(page + 1);
+$('pgLast').onclick = () => goPage(pageView().pages - 1);
+$('pgSize').onchange = e => {
+  const first = page * (pageSize || files.length);   // 今見ている先頭の行が入るページへ
+  pageSize = Number(e.target.value);
+  page = pageSize ? Math.floor(first / pageSize) : 0;
+  saveUi({ pageSize }); renderRows(); document.querySelector('.tablewrap').scrollTop = 0;
+};
+$('selAllHint').addEventListener('click', e => {
+  const b = e.target.closest('button[data-sel]'); if (!b) return;
+  if (b.dataset.sel === 'all') files.forEach(f => selected.add(f.id)); else selected.clear();
+  renderRows();
+});
 $('tbody').addEventListener('dragstart', e => {
   const tr = e.target.closest('tr'); if (!tr) return;
   const id = tr.dataset.id;
@@ -1480,7 +1568,7 @@ $('btnDup').onclick = () => {
     g.sort((a, b) => (a.createdTime || '') < (b.createdTime || '') ? -1 : 1);
     g.forEach((f, j) => { f.dup = i + 1; files.push(f); if (j > 0) selected.add(f.id); });
   });
-  dupMode = true; sortKey = 'dup'; sortDir = 1; $('chkAll').checked = false;
+  dupMode = true; page = 0; sortKey = 'dup'; sortDir = 1; $('chkAll').checked = false;
   renderRows();
   status(`中身が同じファイルが <strong>${dups.length}組（${files.length}件）</strong>あります。各組で作成日がいちばん古い1件を残し、残りの${selected.size}件を選択しました。<br>確認してから「ゴミ箱へ」「PCへ移動」などを使ってください。名前が違っても中身が同じなら同じ組になります。`, 'okc');
 };
@@ -1604,7 +1692,7 @@ $('btnReset').onclick = () => {
 };
 
 document.querySelectorAll('th[data-k]').forEach(th => th.onclick = () => {
-  const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : 1; sortKey = k; sortRows(); renderRows();
+  const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : 1; sortKey = k; page = 0; sortRows(); renderRows();
 });
 
 $('tbody').addEventListener('change', async e => {
@@ -1613,7 +1701,7 @@ $('tbody').addEventListener('change', async e => {
   if (e.target.classList.contains('rc')) {
     e.target.checked ? selected.add(id) : selected.delete(id);
     tr.classList.toggle('sel', e.target.checked);
-    $('selCount').textContent = selected.size + '件選択';
+    updateSelUi();
   } else if (e.target.classList.contains('us')) {
     const f = files.find(x => x.id === id); const prev = f.usage; const val = e.target.value;
     const mark = tr.querySelector('.saved'); mark.textContent = '保存中…';
@@ -1626,7 +1714,8 @@ $('tbody').addEventListener('change', async e => {
   }
 });
 $('chkAll').onchange = e => {
-  selected.clear(); if (e.target.checked) files.forEach(f => selected.add(f.id)); renderRows();
+  pageView().view.forEach(f => e.target.checked ? selected.add(f.id) : selected.delete(f.id));
+  renderRows();
 };
 
 $('btnBulkUsage').onclick = async () => {
@@ -1653,6 +1742,101 @@ $('btnToPcMove').onclick = () => toPc(true);
 
 window.addEventListener('beforeunload', e => { if (busy) { e.preventDefault(); e.returnValue = ''; } });
 
+/* ---------- プレビュー ---------- */
+const prevCache = new Map();            // id+サイズ → 表示用URL（null＝なし）
+const DIRECT_IMG = /^image\/(jpeg|png|gif|webp|bmp)$/;
+function imgLoads(url) {
+  return new Promise(res => {
+    const im = new Image(); im.referrerPolicy = 'no-referrer';
+    const t = setTimeout(() => res(false), 8000);
+    im.onload = () => { clearTimeout(t); res(im.naturalWidth > 0); };
+    im.onerror = () => { clearTimeout(t); res(false); };
+    im.src = url;
+  });
+}
+async function previewSrc(f, big) {
+  const key = f.id + (big ? ':L' : ':S');
+  if (prevCache.has(key)) return prevCache.get(key);
+  let src = null;
+  // 大きく見るときの画像は、元のファイルを読む（15MBまで）
+  if (big && DIRECT_IMG.test(f.mimeType) && f.size != null && f.size < 15e6) {
+    try { const res = await authFetch(`${API}/files/${encodeURIComponent(f.id)}?alt=media`); src = URL.createObjectURL(await res.blob()); } catch (e) {}
+  }
+  if (!src && f.thumb) {
+    const link = /=s\d+$/.test(f.thumb) ? f.thumb.replace(/=s\d+$/, big ? '=s1600' : '=s400') : f.thumb;
+    if (await imgLoads(link)) src = link;
+    else { try { const res = await authFetch(link); src = URL.createObjectURL(await res.blob()); } catch (e) {} }
+  }
+  prevCache.set(key, src);
+  return src;
+}
+function imgTag(src) { return `<img src="${esc(src)}" referrerpolicy="no-referrer" alt="">`; }
+function metaText(f) { return [typeLabel(f.mimeType), fmtSize(f.size), '更新 ' + fmtDate(f.modifiedTime), f.parentName].filter(Boolean).join('　'); }
+
+// マウスを重ねるとプレビュー（マウスのある環境だけ）
+const canHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+let hovTimer = null, hovId = null;
+function hideHover() { clearTimeout(hovTimer); hovId = null; $('hoverPrev').style.display = 'none'; }
+function placeHover(x, y) {
+  const el = $('hoverPrev'), w = 352, h = el.offsetHeight || 290;
+  let left = x + 18, top = y + 12;
+  if (left + w > innerWidth - 8) left = Math.max(8, x - w - 18);
+  if (top + h > innerHeight - 8) top = Math.max(8, innerHeight - h - 8);
+  el.style.left = left + 'px'; el.style.top = top + 'px';
+}
+if (canHover) {
+  $('tbody').addEventListener('mouseover', e => {
+    const a = e.target.closest('a[data-hov]'); if (!a) return;
+    const id = a.closest('tr').dataset.id; if (id === hovId) return;
+    hideHover(); hovId = id;
+    const x = e.clientX, y = e.clientY;
+    hovTimer = setTimeout(async () => {
+      const f = files.find(z => z.id === id); if (!f || hovId !== id) return;
+      const el = $('hoverPrev');
+      el.querySelector('.box').innerHTML = '読み込み中…';
+      el.querySelector('.cap').textContent = f.name + '　' + metaText(f);
+      el.style.display = 'block'; placeHover(x, y);
+      const src = await previewSrc(f, false);
+      if (hovId !== id) return;
+      el.querySelector('.box').innerHTML = src ? imgTag(src) : 'プレビューがありません';
+    }, 350);
+  });
+  $('tbody').addEventListener('mousemove', e => { if ($('hoverPrev').style.display === 'block') placeHover(e.clientX, e.clientY); });
+  $('tbody').addEventListener('mouseout', e => { const a = e.target.closest('a[data-hov]'); if (a && !a.contains(e.relatedTarget)) hideHover(); });
+  $('tbody').addEventListener('dragstart', hideHover);
+}
+
+// 👁 ボタンで大きく表示（← → で前後のファイル）
+let pvIdx = -1, pvToken = 0;
+async function showPreview(idx) {
+  const v = pageView().view;
+  if (idx < 0 || idx >= v.length) return;
+  pvIdx = idx; const f = v[idx]; const my = ++pvToken;
+  $('pvName').textContent = f.name;
+  $('pvOpen').href = f.url;
+  $('pvMeta').textContent = `${idx + 1} / ${v.length}（このページ）　` + metaText(f);
+  $('pvPrev').disabled = idx === 0; $('pvNext').disabled = idx === v.length - 1;
+  $('pvBody').innerHTML = '<span>読み込み中…</span>';
+  if (!$('pvDlg').open) $('pvDlg').showModal();
+  const src = await previewSrc(f, true);
+  if (my !== pvToken) return;
+  $('pvBody').innerHTML = src ? imgTag(src) : '<span>このファイルはプレビューがありません。「Googleで開く」で確認してください。</span>';
+}
+$('tbody').addEventListener('click', e => {
+  const b = e.target.closest('button[data-eye]'); if (!b) return;
+  hideHover();
+  const id = b.closest('tr').dataset.id;
+  showPreview(pageView().view.findIndex(f => f.id === id));
+});
+$('pvPrev').onclick = () => showPreview(pvIdx - 1);
+$('pvNext').onclick = () => showPreview(pvIdx + 1);
+$('pvClose').onclick = () => $('pvDlg').close();
+$('pvDlg').addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') { e.preventDefault(); showPreview(pvIdx - 1); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); showPreview(pvIdx + 1); }
+});
+$('pvDlg').addEventListener('click', e => { if (e.target === $('pvDlg')) $('pvDlg').close(); });
+
 /* ---------- 画面の配置 ---------- */
 const LS_UI = 'driveSeiri.ui';
 function loadUi() { try { return JSON.parse(lsGet(LS_UI)) || {}; } catch (e) { return {}; } }
@@ -1676,6 +1860,8 @@ $('newTag').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isCom
 (function applyUi() {
   const u = loadUi();
   if (u.noside) $('main').classList.add('noside');
+  if (u.pageSize != null && [0, 25, 50, 100, 200].includes(Number(u.pageSize))) pageSize = Number(u.pageSize);
+  $('pgSize').value = String(pageSize);
   if (u.open) document.querySelectorAll('aside details[data-sec]').forEach(d => { if (d.dataset.sec in u.open) d.open = u.open[d.dataset.sec]; });
 })();
 
