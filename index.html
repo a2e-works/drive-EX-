@@ -75,6 +75,11 @@
   /* ツリー */
   ul.tree, ul.tree ul { list-style:none; margin:0; padding-left:14px; }
   ul.tree { padding-left:0; max-height:40vh; overflow:auto; }
+  ul.tree li.acctHead { font-size:11px; color:var(--sub); padding:6px 4px 2px; border-top:1px dashed var(--bd); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  ul.tree li.acctHead:first-child { border-top:none; margin-top:0; }
+  ul.tree li.acctHead.me { color:var(--ac); font-weight:bold; }
+  .folderlist .path { color:var(--sub); font-size:12px; }
+  .folderlist .acct { color:#1967d2; font-size:11px; background:var(--sel); border-radius:8px; padding:0 6px; margin-left:4px; }
   .node { display:flex; align-items:center; gap:2px; padding:2px 4px; border-radius:4px; cursor:pointer; white-space:nowrap; font-size:13px; }
   .node:hover { background:#f1f3f4; }
   .node.cur { background:var(--sel); font-weight:bold; }
@@ -343,7 +348,7 @@
         <button class="sm" id="btnBulkUsage">用途を付ける</button>
         <span class="sep"></span>
         <span id="moveChip" class="chip" style="display:none"></span>
-        <button class="sm" id="btnPickMove">移動先…</button>
+        <button class="sm" id="btnPickMove">移動先を選ぶ…</button>
         <button class="sm" id="btnMove">移動</button>
         <span class="sep"></span>
         <button class="sm" id="btnToPcCopy">PCへコピー</button>
@@ -355,12 +360,6 @@
         <span class="grow"></span>
         <button class="sm dg" id="btnTrash">ゴミ箱へ</button>
       </div>
-      <div class="row" id="moveFind" style="display:none;margin-top:6px">
-        <input type="text" id="moveInput" placeholder="移動先フォルダ名・URL・ID" size="26">
-        <button class="sm" id="btnFindMove">探す</button>
-        <button class="sm" id="btnMoveFromTree">ツリーで選択中のフォルダにする</button>
-      </div>
-      <div class="folderlist" id="moveList"></div>
     </div>
     <div class="tablewrap">
     <table>
@@ -446,6 +445,22 @@
   </div>
 </dialog>
 
+<dialog id="mvDlg" style="max-width:680px">
+  <h3 style="margin-top:0">移動先を選ぶ</h3>
+  <div class="row" style="flex-wrap:nowrap;gap:4px">
+    <input type="text" id="mvSearch" placeholder="フォルダ名で探す（ログイン中の全アカウント）" style="flex:1;min-width:0">
+    <button class="sm" id="mvFind">探す</button>
+  </div>
+  <div class="folderlist" id="mvList"></div>
+  <div class="note" style="margin-top:8px">またはツリーから選ぶ（▸で開く）</div>
+  <ul class="tree" id="mvTree" style="max-height:42vh;border:1px solid var(--bd);border-radius:6px;padding:4px"></ul>
+  <div id="mvSelPath" style="margin:10px 0;font-size:13px"></div>
+  <div class="row" style="justify-content:flex-end">
+    <button id="mvNo">やめる</button>
+    <button class="pri" id="mvYes" disabled>ここに決定</button>
+  </div>
+</dialog>
+
 <dialog id="dlg">
   <h3 id="dlgTitle"></h3>
   <p id="dlgMsg"></p>
@@ -458,7 +473,7 @@
 
 <script>
 'use strict';
-const APP_VERSION = 'v1.0.0';
+const APP_VERSION = 'v1.1.0';
 const APP_DATE = '2026-10-15';
 const $ = id => document.getElementById(id);
 const SCOPE = 'https://www.googleapis.com/auth/drive';
@@ -505,7 +520,6 @@ let sortKey = 'modifiedTime', sortDir = -1;
 let busy = false;
 let dupMode = false;              // 重複表示中か
 let page = 0, pageSize = 25;      // 一覧のページ（pageSize 0 = すべて）
-const tree = { rootId: null, nodes: new Map(), cur: null };   // ドライブのツリー
 const local = { stack: [], entries: [], sel: new Set() };     // PCのフォルダ
 
 /* ---------- 保存（このブラウザのみ） ---------- */
@@ -603,18 +617,21 @@ async function addAccount() {
       token: r.access_token,
       exp: Date.now() + (Number(r.expires_in) || 3600) * 1000,
       name: about.user.displayName || '',
-      folderNames: prev ? prev.folderNames : new Map()
+      folderNames: prev ? prev.folderNames : new Map(),
+      meta: prev ? prev.meta : new Map(),                 // フォルダID → {name, parent}
+      tree: prev ? prev.tree : { rootId: null, nodes: new Map() }
     });
     await switchAccount(email);
     status(`${esc(email)} でログインしました`, 'okc');
   } catch (e) { status(esc(e.message), 'err'); }
 }
 
-async function token() {
-  const a = accounts.get(current);
-  if (!a) throw new Error('アカウントが選ばれていません');
+async function token(email) {
+  email = email || current;
+  const a = accounts.get(email);
+  if (!a) throw new Error(email ? `${email} はログインしていません` : 'アカウントが選ばれていません');
   if (Date.now() < a.exp - 60000) return a.token;
-  const r = await requestToken({ prompt: '', hint: current });
+  const r = await requestToken({ prompt: '', hint: email });
   a.token = r.access_token;
   a.exp = Date.now() + (Number(r.expires_in) || 3600) * 1000;
   return a.token;
@@ -625,6 +642,7 @@ function logout() {
   try { google.accounts.oauth2.revoke(a.token, () => {}); } catch (e) {}
   const email = current;
   accounts.delete(email);
+  if (treeCur && treeCur.email === email) treeCur = null;
   switchAccount(accounts.size ? accounts.keys().next().value : null);
   status(`${esc(email)} をログアウトしました`, 'okc');
 }
@@ -634,12 +652,14 @@ async function switchAccount(email) {
   files = []; selected.clear(); filterFolder = null; moveFolder = null;
   $('folderChip').style.display = 'none'; $('moveChip').style.display = 'none';
   $('resultArea').style.display = 'none'; status('');
-  tree.rootId = null; tree.nodes.clear(); tree.cur = null; renderTree(); setUpDest();
+  if (!email) treeCur = null;
+  else if (!treeCur || treeCur.email !== email) treeCur = { email, id: acctTree(email).rootId };
+  renderTree(); setUpDest();
   dupMode = false; loadHistory();
   renderAccounts();
   loadQuota();
-  if (email) {
-    try { await loadTreeRoot(); } catch (e) { status('フォルダ一覧の読み込みに失敗：' + esc(e.message), 'err'); }
+  if (email && !acctTree(email).rootId) {
+    try { await loadTreeRoot(email); } catch (e) { status('フォルダ一覧の読み込みに失敗：' + esc(e.message), 'err'); }
   }
 }
 
@@ -655,17 +675,17 @@ function renderAccounts() {
 
 /* ---------- Drive API ---------- */
 // 認証つきで呼ぶ。401は1回だけログインし直し、回数制限・一時エラーは待って再試行
-async function authFetch(url, init) {
-  init = init || {};
+async function authFetch(url, init, email) {
+  init = init || {}; email = email || current;
   for (let attempt = 0; ; attempt++) {
-    const tok = await token();
+    const tok = await token(email);
     const res = await fetch(url, Object.assign({}, init, {
       headers: Object.assign({ Authorization: 'Bearer ' + tok }, init.headers || {})
     }));
     if (res.ok) return res;
     let msg = '';
     try { const j = await res.clone().json(); msg = (j.error && j.error.message) || ''; } catch (e) {}
-    if (res.status === 401 && attempt === 0) { accounts.get(current).exp = 0; continue; }
+    if (res.status === 401 && attempt === 0) { accounts.get(email).exp = 0; continue; }
     const rate = res.status === 429 || (res.status === 403 && /rate|limit/i.test(msg)) || res.status >= 500;
     if (rate && attempt < 4) { await sleep(800 * Math.pow(2, attempt) + Math.random() * 300); continue; }
     const err = new Error(`Drive APIエラー(${res.status}) ${msg}`);
@@ -674,11 +694,11 @@ async function authFetch(url, init) {
   }
 }
 
-async function api(path, params, init) {
+async function api(path, params, init, email) {
   const qs = params ? '?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString() : '';
   init = init || {};
   if (init.body && typeof init.body === 'string') init.headers = Object.assign({ 'Content-Type': 'application/json' }, init.headers || {});
-  const res = await authFetch(API + path + qs, init);
+  const res = await authFetch(API + path + qs, init, email);
   return res.status === 204 ? {} : res.json();
 }
 
@@ -699,84 +719,130 @@ async function folderName(id) {
   return name;
 }
 
-/* ---------- ドライブのツリー ---------- */
-async function loadTreeRoot() {
-  const r = await api('/files/root', { fields: 'id' });
-  tree.rootId = r.id; tree.nodes.clear();
-  tree.nodes.set(r.id, { id: r.id, name: 'マイドライブ', children: null, open: true });
-  accounts.get(current).folderNames.set(r.id, 'マイドライブ');
-  if (!tree.cur) tree.cur = r.id;
+/* ---------- ドライブのツリー（ログイン中の全アカウント） ---------- */
+let treeCur = null;     // 左のツリーで選んでいるフォルダ {email, id}
+let mvSel = null;       // 移動先の画面で選んでいるフォルダ {email, id}
+function acctTree(email) {
+  const a = accounts.get(email);
+  if (!a.tree) a.tree = { rootId: null, nodes: new Map() };
+  if (!a.meta) a.meta = new Map();
+  return a.tree;
+}
+async function loadTreeRoot(email) {
+  email = email || current;
+  const t = acctTree(email);
+  const r = await api('/files/root', { fields: 'id' }, null, email);
+  t.rootId = r.id; t.nodes.clear();
+  t.nodes.set(r.id, { id: r.id, name: 'マイドライブ', children: null, open: true });
+  accounts.get(email).folderNames.set(r.id, 'マイドライブ');
+  if (email === current && (!treeCur || treeCur.email !== email || !treeCur.id)) treeCur = { email, id: r.id };
   setUpDest();
-  await loadChildren(r.id);
+  await loadChildren(r.id, email);
   renderTree();
 }
-
-async function loadChildren(id) {
+async function loadChildren(id, email) {
+  email = email || current;
+  const a = accounts.get(email), t = acctTree(email);
   const kids = []; let pt = null;
-  const cache = accounts.get(current).folderNames;
   do {
     const res = await api('/files', {
       q: `'${qEsc(id)}' in parents and mimeType = '${FOLDER_MIME}' and trashed = false`,
       pageSize: 1000, orderBy: 'name', pageToken: pt, fields: 'nextPageToken, files(id,name)'
-    });
+    }, null, email);
     for (const f of (res.files || [])) {
-      const old = tree.nodes.get(f.id);
-      tree.nodes.set(f.id, { id: f.id, name: f.name, children: old ? old.children : null, open: old ? old.open : false });
-      cache.set(f.id, f.name);
+      const old = t.nodes.get(f.id);
+      t.nodes.set(f.id, { id: f.id, name: f.name, children: old ? old.children : null, open: old ? old.open : false });
+      a.folderNames.set(f.id, f.name);
+      a.meta.set(f.id, { name: f.name, parent: id });
       kids.push(f.id);
     }
     pt = res.nextPageToken;
   } while (pt);
-  tree.nodes.get(id).children = kids;
+  t.nodes.get(id).children = kids;
 }
-
-function nodeHtml(id) {
-  const n = tree.nodes.get(id); if (!n) return '';
+function nodeHtml(email, id, sel) {
+  const t = acctTree(email), n = t.nodes.get(id); if (!n) return '';
   const hasKids = n.children === null || n.children.length > 0;
   const tw = hasKids ? `<span class="tw" data-act="toggle">${n.open ? '▾' : '▸'}</span>` : '<span class="tw"></span>';
-  let h = `<li><div class="node${tree.cur === id ? ' cur' : ''}" data-id="${esc(id)}" title="${esc(n.name)}">${tw}<span class="nm">📁 ${esc(n.name)}</span></div>`;
-  if (n.open && n.children && n.children.length) h += '<ul>' + n.children.map(nodeHtml).join('') + '</ul>';
+  const isSel = sel && sel.email === email && sel.id === id;
+  let h = `<li><div class="node${isSel ? ' cur' : ''}" data-acct="${esc(email)}" data-id="${esc(id)}" title="${esc(n.name)}">${tw}<span class="nm">📁 ${esc(n.name)}</span></div>`;
+  if (n.open && n.children && n.children.length) h += '<ul>' + n.children.map(c => nodeHtml(email, c, sel)).join('') + '</ul>';
   return h + '</li>';
 }
-function renderTree() { $('tree').innerHTML = tree.rootId ? nodeHtml(tree.rootId) : '<li class="note">ログインすると表示されます</li>'; }
-
+function treeHtml(sel) {
+  const emails = [...accounts.keys()].filter(e => acctTree(e).rootId);
+  if (!emails.length) return '<li class="note">ログインすると表示されます</li>';
+  const multi = accounts.size > 1;
+  return emails.map(e => (multi ? `<li class="acctHead${e === current ? ' me' : ''}" title="${esc(e)}">👤 ${esc(e)}</li>` : '') + nodeHtml(e, acctTree(e).rootId, sel)).join('');
+}
+function renderTree() {
+  $('tree').innerHTML = treeHtml(treeCur);
+  if ($('mvDlg').open) $('mvTree').innerHTML = treeHtml(mvSel);
+}
 function curFolder() {
-  const id = tree.cur || tree.rootId;
-  const n = tree.nodes.get(id);
-  return id ? { id, name: n ? n.name : (accounts.get(current).folderNames.get(id) || id) } : null;
+  if (!current) return null;
+  const t = acctTree(current);
+  const id = treeCur && treeCur.email === current && treeCur.id ? treeCur.id : t.rootId;
+  if (!id) return null;
+  const n = t.nodes.get(id);
+  return { id, name: n ? n.name : (accounts.get(current).folderNames.get(id) || id), email: current };
 }
 function setUpDest() { const f = current && curFolder(); $('upDest').textContent = f ? '📁 ' + f.name : '—'; }
 
-async function toggleNode(id) {
-  const n = tree.nodes.get(id);
+// フォルダのフルパス（例：マイドライブ / 仕事 / 2026）
+async function folderPath(id, email) {
+  email = email || current;
+  const a = accounts.get(email); if (!a) return '';
+  const t = acctTree(email);
+  if (!t.rootId) { try { await loadTreeRoot(email); } catch (e) {} }
+  const names = []; let cur = id;
+  for (let i = 0; cur && i < 30; i++) {
+    if (cur === t.rootId) { names.unshift('マイドライブ'); return names.join(' / '); }
+    let m = a.meta.get(cur);
+    if (!m) {
+      try { const f = await api('/files/' + encodeURIComponent(cur), { fields: 'name,parents' }, null, email); m = { name: f.name, parent: (f.parents || [])[0] || null }; }
+      catch (e) { m = { name: '?', parent: null }; }
+      a.meta.set(cur, m);
+    }
+    names.unshift(m.name); cur = m.parent;
+  }
+  names.unshift('共有アイテム');
+  return names.join(' / ');
+}
+
+async function toggleNode(email, id) {
+  const n = acctTree(email).nodes.get(id);
   if (n.open) { n.open = false; renderTree(); return; }
   if (n.children === null) {
-    const el = document.querySelector(`.node[data-id="${CSS.escape(id)}"] .tw`);
-    if (el) el.textContent = '…';
-    try { await loadChildren(id); } catch (e) { status('フォルダの読み込みに失敗：' + esc(e.message), 'err'); }
+    document.querySelectorAll(`.node[data-acct="${CSS.escape(email)}"][data-id="${CSS.escape(id)}"] .tw`).forEach(el => { el.textContent = '…'; });
+    try { await loadChildren(id, email); } catch (e) { status('フォルダの読み込みに失敗：' + esc(e.message), 'err'); }
   }
   n.open = true; renderTree();
 }
-
-function selectNode(id) {
-  tree.cur = id; renderTree(); setUpDest();
-  const f = curFolder();
-  setFilterFolder(f);
+async function selectNode(email, id) {
+  if (email !== current) { $('acctSel').value = email; await switchAccount(email); }
+  treeCur = { email, id }; renderTree(); setUpDest();
+  setFilterFolder(curFolder());
   doSearch();
+}
+function nodeDest(node) {
+  const email = node.dataset.acct, id = node.dataset.id;
+  const n = acctTree(email).nodes.get(id);
+  return { id, name: n ? n.name : id, email };
 }
 
 $('tree').addEventListener('click', e => {
   const node = e.target.closest('.node'); if (!node || busy) return;
-  const id = node.dataset.id;
-  if (e.target.closest('[data-act="toggle"]')) toggleNode(id); else selectNode(id);
+  if (e.target.closest('[data-act="toggle"]')) toggleNode(node.dataset.acct, node.dataset.id);
+  else selectNode(node.dataset.acct, node.dataset.id);
 });
 
-// ツリーへのドロップ：一覧の行→移動、PCのファイル→アップロード、エクスプローラーのファイル→アップロード
+// ツリーへのドロップ：一覧の行→移動（別アカウントならコピー／移動）、PCのファイル→アップロード
 function acceptsDrop(dt) { return dt && [...dt.types].some(t => t === DRAG_DRIVE || t === DRAG_LOCAL || t === 'Files'); }
 $('tree').addEventListener('dragover', e => {
   const node = e.target.closest('.node'); if (!node || !acceptsDrop(e.dataTransfer) || busy) return;
   e.preventDefault();
-  e.dataTransfer.dropEffect = [...e.dataTransfer.types].includes(DRAG_DRIVE) ? 'move' : 'copy';
+  e.dataTransfer.dropEffect = [...e.dataTransfer.types].includes(DRAG_DRIVE) && node.dataset.acct === current ? 'move' : 'copy';
   document.querySelectorAll('.node.drop').forEach(n => n !== node && n.classList.remove('drop'));
   node.classList.add('drop');
 });
@@ -786,9 +852,7 @@ $('tree').addEventListener('dragleave', e => {
 $('tree').addEventListener('drop', async e => {
   const node = e.target.closest('.node'); if (!node) return;
   e.preventDefault(); node.classList.remove('drop');
-  const n = tree.nodes.get(node.dataset.id);
-  const dest = { id: n.id, name: n.name };
-  await handleDrop(e.dataTransfer, dest);
+  await handleDrop(e.dataTransfer, nodeDest(node));
 });
 
 async function handleDrop(dt, dest) {
@@ -796,7 +860,9 @@ async function handleDrop(dt, dest) {
   if (types.includes(DRAG_DRIVE)) {
     const ids = JSON.parse(dt.getData(DRAG_DRIVE) || '[]').filter(id => files.some(f => f.id === id));
     if (!ids.length) return;
-    if (await confirmDlg('ドラッグで移動', `${ids.length}件を「${esc(dest.name)}」へ移動します。`, ids.map(nameOfId)))
+    dest.path = await folderPath(dest.id, dest.email);
+    if (dest.email !== current) return crossTransfer(ids, dest);
+    if (await confirmDlg('ドラッグで移動', `${ids.length}件を「${esc(dest.path)}」へ移動します。`, ids.map(nameOfId)))
       runBulk('move', ids, dest.id, '移動', dest);
   } else if (types.includes(DRAG_LOCAL)) {
     const names = JSON.parse(dt.getData(DRAG_LOCAL) || '[]');
@@ -817,9 +883,144 @@ async function handleDrop(dt, dest) {
 }
 
 $('btnTreeReload').onclick = async () => {
-  try { const keep = tree.cur; await loadTreeRoot(); if (keep && tree.nodes.has(keep)) tree.cur = keep; renderTree(); setUpDest(); }
-  catch (e) { status('更新に失敗：' + esc(e.message), 'err'); }
+  try {
+    const keep = treeCur;
+    for (const e of accounts.keys()) await loadTreeRoot(e);
+    if (keep && accounts.has(keep.email) && acctTree(keep.email).nodes.has(keep.id)) treeCur = keep;
+    renderTree(); setUpDest();
+  } catch (e) { status('更新に失敗：' + esc(e.message), 'err'); }
 };
+
+/* ---------- 移動先を選ぶ画面 ---------- */
+let mvResolve = null;
+function pickMoveDest() {
+  return new Promise(resolve => {
+    mvResolve = resolve;
+    mvSel = moveFolder ? { email: moveFolder.email, id: moveFolder.id } : null;
+    $('mvList').style.display = 'none'; $('mvSearch').value = '';
+    $('mvYes').disabled = !mvSel;
+    $('mvSelPath').innerHTML = moveFolder ? `選択中：<strong>${esc(moveFolder.path || moveFolder.name)}</strong>${moveFolder.email !== current ? ` <span class="chip">${esc(moveFolder.email)}</span>` : ''}` : '<span class="note">まだ選ばれていません</span>';
+    $('mvDlg').showModal();
+    $('mvTree').innerHTML = treeHtml(mvSel);
+    Promise.all([...accounts.keys()].filter(e => !acctTree(e).rootId).map(e => loadTreeRoot(e).catch(() => {}))).then(() => { if ($('mvDlg').open) $('mvTree').innerHTML = treeHtml(mvSel); });
+  });
+}
+async function mvChoose(email, id) {
+  mvSel = { email, id };
+  $('mvTree').innerHTML = treeHtml(mvSel);
+  $('mvYes').disabled = true;
+  $('mvSelPath').innerHTML = '<span class="note">場所を確認しています…</span>';
+  const path = await folderPath(id, email);
+  if (!mvSel || mvSel.id !== id || mvSel.email !== email) return;
+  mvSel.path = path;
+  $('mvSelPath').innerHTML = `選択中：<strong>${esc(path)}</strong>${email !== current ? ` <span class="chip">${esc(email)}</span><br><span class="note">別のアカウントです。コピーして送ります（移動も選べます）。</span>` : ''}`;
+  $('mvYes').disabled = false;
+}
+$('mvTree').addEventListener('click', e => {
+  const node = e.target.closest('.node'); if (!node) return;
+  if (e.target.closest('[data-act="toggle"]')) toggleNode(node.dataset.acct, node.dataset.id);
+  else mvChoose(node.dataset.acct, node.dataset.id);
+});
+$('mvFind').onclick = async () => {
+  const box = $('mvList'), v = $('mvSearch').value.trim();
+  box.style.display = 'block'; box.innerHTML = '<div class="note">探しています…</div>';
+  try {
+    const list = await findFolders(v, [...accounts.keys()]);
+    box.innerHTML = list.map(f => `<div data-acct="${esc(f.email)}" data-id="${esc(f.id)}">📁 ${esc(f.name)}${accounts.size > 1 ? `<span class="acct">${esc(f.email)}</span>` : ''}<br><span class="path">${esc(f.path)}</span></div>`).join('') || '<div class="note">見つかりません</div>';
+  } catch (err) { box.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+};
+$('mvList').addEventListener('click', e => {
+  const d = e.target.closest('div[data-id]'); if (!d) return;
+  $('mvList').style.display = 'none'; mvChoose(d.dataset.acct, d.dataset.id);
+});
+$('mvSearch').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('mvFind').click(); } });
+$('mvNo').onclick = () => { $('mvDlg').close(); if (mvResolve) { mvResolve(null); mvResolve = null; } };
+$('mvDlg').addEventListener('cancel', () => { if (mvResolve) { mvResolve(null); mvResolve = null; } });
+$('mvYes').onclick = () => {
+  if (!mvSel) return;
+  const t = acctTree(mvSel.email), n = t.nodes.get(mvSel.id);
+  const f = { email: mvSel.email, id: mvSel.id, name: n ? n.name : (accounts.get(mvSel.email).meta.get(mvSel.id) || {}).name || mvSel.id, path: mvSel.path };
+  $('mvDlg').close();
+  if (mvResolve) { mvResolve(f); mvResolve = null; }
+};
+
+/* ---------- 別アカウントへ送る（コピー／移動） ---------- */
+const MAX_XFER = 1024 * 1048576;   // 1ファイル1GBまで（ブラウザのメモリを使うため）
+async function uploadBlob(blob, meta, email) {
+  const type = blob.type || 'application/octet-stream';
+  const init = await authFetch(`${UPLOAD_API}/files?uploadType=resumable&fields=id`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': type },
+    body: JSON.stringify(meta)
+  }, email);
+  const loc = init.headers.get('Location');
+  if (loc) {
+    const put = await fetch(loc, { method: 'PUT', headers: { 'Content-Type': type }, body: blob });
+    if (!put.ok) throw new Error(`アップロードに失敗(${put.status})`);
+    try { return (await put.json()).id || ''; } catch (e) { return ''; }
+  }
+  // Locationが読めない環境ではマルチパートで送る
+  const boundary = 'ds' + Math.random().toString(36).slice(2);
+  const body = new Blob([
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n`,
+    `--${boundary}\r\nContent-Type: ${type}\r\n\r\n`, blob, `\r\n--${boundary}--`
+  ]);
+  const res = await authFetch(`${UPLOAD_API}/files?uploadType=multipart&fields=id`, {
+    method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body
+  }, email);
+  try { return (await res.json()).id || ''; } catch (e) { return ''; }
+}
+async function crossTransfer(ids, dest) {
+  const src = current;
+  const where = `${esc(dest.email)} の「${esc(dest.path || dest.name)}」`;
+  const msg = `${ids.length}件を ${where} へ送ります。<br>
+    <label style="display:block;margin-top:8px"><input type="radio" name="xmode" value="copy" checked> <strong>コピー</strong>（元のファイルは残す）</label>
+    <label style="display:block"><input type="radio" name="xmode" value="move"> <strong>移動</strong>（送れたものだけ、元をゴミ箱へ）</label>
+    <span class="note">アカウントをまたぐときは、ファイルを読み込んで送り先に作り直します。名前・作成日・更新日・用途は引き継ぎます。共有設定・コメント・版の履歴は引き継がれません。Googleドキュメント形式は、いったんOffice形式にして送り先でGoogle形式に戻します（フォームなどは送れません）。1ファイル1GBまで。</span>`;
+  if (!await confirmDlg('別のアカウントへ送る', msg, ids.map(nameOfId))) return;
+  const mode = (document.querySelector('input[name=xmode]:checked') || {}).value || 'copy';
+  try { await token(dest.email); } catch (e) { return status('送り先アカウントのログインが必要です：' + esc(e.message), 'err'); }
+  const label = mode === 'move' ? '別アカウントへ移動' : '別アカウントへコピー';
+  const done = new Set(); const fails = []; const ops = []; let n = 0;
+  setBusy(true);
+  await pool(ids, 2, async id => {
+    const f = files.find(x => x.id === id);
+    try {
+      if (!f) throw new Error('一覧にありません');
+      if (f.size != null && f.size > MAX_XFER) throw new Error('サイズが大きすぎます（1GBまで）');
+      const meta = { name: f.name, parents: [dest.id] };
+      // 作成日・更新日を元のファイルと同じにする
+      if (f.createdTime) meta.createdTime = f.createdTime;
+      if (f.modifiedTime) meta.modifiedTime = f.modifiedTime;
+      if (f.usage) meta.properties = { [USAGE_KEY]: f.usage };
+      let blob;
+      if (f.mimeType.startsWith('application/vnd.google-apps.')) {
+        const ex = EXPORTS[f.mimeType];
+        if (!ex) throw new Error('Googleフォーム・マイマップなどの形式は送れません');
+        const res = await authFetch(`${API}/files/${encodeURIComponent(f.id)}/export?mimeType=${encodeURIComponent(ex[0])}`, {}, src);
+        blob = new Blob([await res.blob()], { type: ex[0] });
+        if (f.mimeType === 'application/vnd.google-apps.drawing') meta.name = f.name + ex[1];
+        else meta.mimeType = f.mimeType;     // 送り先でGoogle形式に戻す
+      } else {
+        const res = await authFetch(`${API}/files/${encodeURIComponent(f.id)}?alt=media`, {}, src);
+        blob = await res.blob();
+        if (!blob.type && f.mimeType) blob = new Blob([blob], { type: f.mimeType });
+      }
+      const newId = await uploadBlob(blob, meta, dest.email);
+      const op = { id: f.id, name: f.name, kind: 'xfer', newId, destEmail: dest.email, removed: false };
+      ops.push(op);
+      if (mode === 'move') {
+        try { await api('/files/' + encodeURIComponent(f.id), { fields: 'id' }, { method: 'PATCH', body: JSON.stringify({ trashed: true }) }, src); op.removed = true; }
+        catch (e) { throw new Error('送り先にはコピーしましたが、元をゴミ箱へ移せませんでした：' + e.message); }
+      }
+      done.add(id);
+    } catch (e) { fails.push({ id, error: e.message }); }
+    n++; status(`${label}：${n} / ${ids.length} 件…`);
+  });
+  recordHistory(`${label}（→${dest.email}）`, ops);
+  if (mode === 'move') files = files.filter(f => !ops.some(o => o.id === f.id && o.removed));
+  finishBulk(label, done.size, fails);
+}
 
 /* ---------- 検索 ---------- */
 function criteria() {
@@ -948,24 +1149,27 @@ async function resolveFolder(input) {
   if (m) id = m[1];
   const f = await api('/files/' + encodeURIComponent(id), { fields: 'id,name,mimeType' });
   if (f.mimeType !== FOLDER_MIME) throw new Error('フォルダではありません');
-  return { id: f.id, name: f.name };
+  return { id: f.id, name: f.name, email: current, path: await folderPath(f.id) };
 }
 
-async function findFolders(name) {
-  const q = [`mimeType = '${FOLDER_MIME}'`, 'trashed = false'];
-  if (name) q.push(`name contains '${qEsc(name)}'`);
-  const res = await api('/files', { q: q.join(' and '), pageSize: 50, orderBy: 'name', fields: 'files(id,name,parents)' });
-  const rootId = tree.rootId || (await api('/files/root', { fields: 'id' })).id;
-  const list = [{ id: rootId, name: 'マイドライブ（一番上）', parentName: '' }];
-  const fl = res.files || [];
-  const pids = [...new Set(fl.map(f => (f.parents || [])[0]).filter(Boolean))];
-  await pool(pids, 8, id => folderName(id));
-  const cache = accounts.get(current).folderNames;
-  fl.forEach(f => {
-    const pid = (f.parents || [])[0];
-    list.push({ id: f.id, name: f.name, parentName: pid ? (pid === rootId ? 'マイドライブ' : cache.get(pid) || '') : '' });
-  });
-  return list;
+// フォルダを名前で探す。emails のアカウントすべてで探し、フルパス付きで返す
+async function findFolders(name, emails) {
+  emails = emails || [current];
+  const out = [];
+  await Promise.all(emails.map(async email => {
+    const q = [`mimeType = '${FOLDER_MIME}'`, 'trashed = false'];
+    if (name) q.push(`name contains '${qEsc(name)}'`);
+    const t = acctTree(email);
+    if (!t.rootId) { try { await loadTreeRoot(email); } catch (e) {} }
+    const res = await api('/files', { q: q.join(' and '), pageSize: 50, orderBy: 'name', fields: 'files(id,name,parents)' }, null, email);
+    const a = accounts.get(email);
+    if (!name && t.rootId) out.push({ email, id: t.rootId, name: 'マイドライブ（一番上）', path: 'マイドライブ' });
+    (res.files || []).forEach(f => a.meta.set(f.id, { name: f.name, parent: (f.parents || [])[0] || null }));
+    const list = res.files || [];
+    await pool(list, 6, async f => { out.push({ email, id: f.id, name: f.name, path: await folderPath(f.id, email) }); });
+  }));
+  out.sort((x, y) => (x.email === current ? 0 : 1) - (y.email === current ? 0 : 1) || x.email.localeCompare(y.email) || x.path.localeCompare(y.path, 'ja'));
+  return out;
 }
 
 /* ---------- PC（ローカルフォルダ） ---------- */
@@ -1124,40 +1328,17 @@ async function toPc(remove) {
 }
 
 /* ---------- PC → ドライブ ---------- */
-async function uploadOne(file, parentId, usage, skipDup) {
+async function uploadOne(file, parentId, usage, skipDup, email) {
+  email = email || current;
   if (skipDup) {
-    const r = await api('/files', { q: `name = '${qEsc(file.name)}' and '${qEsc(parentId)}' in parents and trashed = false`, fields: 'files(id)', pageSize: 1 });
+    const r = await api('/files', { q: `name = '${qEsc(file.name)}' and '${qEsc(parentId)}' in parents and trashed = false`, fields: 'files(id)', pageSize: 1 }, null, email);
     if (r.files && r.files.length) return { skip: true };
   }
   const meta = { name: file.name, parents: [parentId] };
   if (usage) meta.properties = { [USAGE_KEY]: usage };
-  const type = file.type || 'application/octet-stream';
-  // 再開可能アップロード（大きいファイルにも対応）
-  const init = await authFetch(`${UPLOAD_API}/files?uploadType=resumable&fields=id`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': type },
-    body: JSON.stringify(meta)
-  });
-  const loc = init.headers.get('Location');
-  if (loc) {
-    const put = await fetch(loc, { method: 'PUT', headers: { 'Content-Type': type }, body: file });
-    if (!put.ok) throw new Error(`アップロードに失敗(${put.status})`);
-    let id = '';
-    try { id = (await put.json()).id || ''; } catch (e) {}
-    return { id };
-  }
-  // Locationが読めない環境ではマルチパートで送る
-  const boundary = 'ds' + Math.random().toString(36).slice(2);
-  const body = new Blob([
-    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n`,
-    `--${boundary}\r\nContent-Type: ${type}\r\n\r\n`, file, `\r\n--${boundary}--`
-  ]);
-  const res = await authFetch(`${UPLOAD_API}/files?uploadType=multipart&fields=id`, {
-    method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body
-  });
-  let id = '';
-  try { id = (await res.json()).id || ''; } catch (e) {}
-  return { id };
+  if (file.lastModified) meta.modifiedTime = new Date(file.lastModified).toISOString();   // PCでの更新日時を引き継ぐ
+  const blob = file.type ? file : new Blob([file], { type: 'application/octet-stream' });
+  return { id: await uploadBlob(blob, meta, email) };
 }
 
 // items: [{name, get: async () => File}]
@@ -1166,32 +1347,33 @@ async function uploadItems(items, dest, opts) {
   opts = opts || {};
   if (!dest) return status('アップロード先のフォルダがありません', 'err');
   if (busy) return;
+  const toEmail = dest.email || current;
   let usage = $('upUsage').value; const skipDup = !opts.camera && $('upSkipDup').checked;
   const names = items.map(x => x.name);
   const extra = opts.camera
     ? `<br><label>用途 <select id="camUsage">${usageOptions(usage, true).replace('（未設定）', 'なし')}</select></label>`
     : (usage ? `用途「${esc(usage)}」を付けます。` : '') + (skipDup ? '同じフォルダに同名ファイルがあればスキップします。' : '');
   const prev = opts.preview ? `<img id="camPrev" src="${opts.preview}" alt="撮影した写真">` : '';
-  if (!await confirmDlg('ドライブへアップロード', `${prev}${items.length}件を「${esc(dest.name)}」へアップロードします（アカウント：${esc(current)}）。${extra}`, names)) return false;
+  if (!await confirmDlg('ドライブへアップロード', `${prev}${items.length}件を「${esc(dest.name)}」へアップロードします（アカウント：${esc(toEmail)}）。${extra}`, names)) return false;
   if (opts.camera && $('camUsage')) { usage = $('camUsage').value; $('upUsage').value = usage; }
   let ok = 0, skip = 0, n = 0; const fails = []; const ops = [];
   setBusy(true);
   await pool(items, PARALLEL_IO, async it => {
     try {
       const file = await it.get();
-      const r = await uploadOne(file, dest.id, usage, skipDup);
+      const r = await uploadOne(file, dest.id, usage, skipDup, toEmail);
       if (r.skip) skip++;
-      else { ok++; if (r.id) ops.push({ id: r.id, name: file.name, kind: 'upload' }); }
+      else { ok++; if (r.id) ops.push({ id: r.id, name: file.name, kind: 'upload', email: toEmail }); }
     } catch (e) { fails.push({ name: it.name, error: e.message }); }
     n++; status(`アップロード：${n} / ${items.length} 件…`);
   });
-  recordHistory(`アップロード（→${dest.name}）`, ops);
+  recordHistory(`アップロード（→${dest.name}${toEmail !== current ? '・' + toEmail : ''}）`, ops);
   loadQuota();
   setBusy(false);
   let msg = `アップロード：${ok}件完了` + (skip ? `、同名のため${skip}件スキップ` : '');
   if (fails.length) msg += `<br><span class="err">${fails.length}件失敗</span><ul class="err">` + fails.slice(0, 10).map(f => `<li>${esc(f.name)}：${esc(f.error)}</li>`).join('') + '</ul>';
   status(msg, fails.length ? '' : 'okc');
-  if (ok && filterFolder && filterFolder.id === dest.id) { const m = $('status').innerHTML; await doSearch(); $('status').innerHTML = m; }
+  if (ok && toEmail === current && filterFolder && filterFolder.id === dest.id) { const m = $('status').innerHTML; await doSearch(); $('status').innerHTML = m; }
   if (opts.camera && ok) $('status').insertAdjacentHTML('beforeend', ' <button class="sm pri" data-act="cam">📷 続けて撮る</button>');
   return ok > 0;
 }
@@ -1410,7 +1592,7 @@ $('tbody').addEventListener('dragstart', e => {
 /* ---------- フォルダ選択 ---------- */
 function setFilterFolder(f) {
   filterFolder = f;
-  if (f) { $('folderChip').textContent = '📁 ' + f.name; $('folderChip').style.display = 'inline-block'; }
+  if (f) { $('folderChip').textContent = '📁 ' + (f.path || f.name); $('folderChip').title = f.path || f.name; $('folderChip').style.display = 'inline-block'; }
   else $('folderChip').style.display = 'none';
 }
 async function showFolderPicker(inputId, listId, onPick) {
@@ -1422,17 +1604,19 @@ async function showFolderPicker(inputId, listId, onPick) {
       const f = await resolveFolder(v);
       box.style.display = 'none'; onPick(f); return;
     }
-    const list = await findFolders(v);
-    box.innerHTML = list.map(f => `<div data-id="${esc(f.id)}" data-name="${esc(f.name)}">📁 ${esc(f.name)}${f.parentName ? ` <span class="note">（${esc(f.parentName)} 内）</span>` : ''}</div>`).join('');
+    const list = await findFolders(v, [current]);
+    box.innerHTML = list.map((f, i) => `<div data-i="${i}">📁 ${esc(f.name)}<br><span class="path">${esc(f.path)}</span></div>`).join('') || '<div class="note">見つかりません</div>';
     box.onclick = e => {
-      const d = e.target.closest('div[data-id]'); if (!d) return;
-      box.style.display = 'none'; onPick({ id: d.dataset.id, name: d.dataset.name });
+      const d = e.target.closest('div[data-i]'); if (!d) return;
+      box.style.display = 'none'; onPick(list[Number(d.dataset.i)]);
     };
   } catch (err) { box.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
 }
 function setMoveFolder(f) {
-  moveFolder = f; $('moveChip').textContent = '移動先：📁 ' + f.name; $('moveChip').style.display = 'inline-block';
-  $('moveFind').style.display = 'none'; $('moveInput').value = ''; $('moveList').style.display = 'none';
+  moveFolder = f;
+  $('moveChip').textContent = '移動先：📁 ' + (f.path || f.name) + (f.email && f.email !== current ? `（${f.email}）` : '');
+  $('moveChip').title = (f.path || f.name) + (f.email ? '\n' + f.email : '');
+  $('moveChip').style.display = 'inline-block';
 }
 
 /* ---------- 一括操作 ---------- */
@@ -1636,6 +1820,7 @@ function undoNote(h) {
   if (k === 'trash' && h.ops[0].pcSaved) return 'ドライブのゴミ箱から元の場所に戻します（PCに保存したファイルはそのまま残ります）。';
   if (k === 'trash') return 'ゴミ箱から元の場所に戻します（ゴミ箱を空にした後は戻せません）。';
   if (k === 'upload') return 'アップロードしたファイルをドライブのゴミ箱へ移します。';
+  if (k === 'xfer') return '送り先のコピーをゴミ箱へ移し、元のファイルをゴミ箱へ移していた場合は元に戻します（送り先のアカウントにもログインが必要です）。';
   if (k === 'move') return '元のフォルダに戻します。';
   if (k === 'rename') return '元の名前に戻します。';
   if (k === 'usage') return '元の用途に戻します。';
@@ -1652,7 +1837,12 @@ async function undoHistory(hid) {
   await pool(h.ops, PARALLEL, async o => {
     try {
       if (o.kind === 'trash') await doAction('untrash', o.id);
-      else if (o.kind === 'upload') await doAction('trash', o.id);
+      else if (o.kind === 'upload') {
+        await api('/files/' + encodeURIComponent(o.id), { fields: 'id' }, { method: 'PATCH', body: JSON.stringify({ trashed: true }) }, o.email || current);
+      } else if (o.kind === 'xfer') {
+        if (o.newId) await api('/files/' + encodeURIComponent(o.newId), { fields: 'id' }, { method: 'PATCH', body: JSON.stringify({ trashed: true }) }, o.destEmail);
+        if (o.removed) await doAction('untrash', o.id);
+      }
       else if (o.kind === 'usage') await doAction('usage', o.id, o.prev);
       else if (o.kind === 'rename') await doAction('rename', o.id, o.prev);
       else if (o.kind === 'move') await doAction('restoreParents', o.id, o.prev);
@@ -1697,9 +1887,7 @@ $('btnAddTag').onclick = () => {
 
 $('btnFindFolder').onclick = () => showFolderPicker('folderInput', 'folderList', f => { setFilterFolder(f); $('folderInput').value = ''; });
 $('btnClearFolder').onclick = () => { setFilterFolder(null); $('folderList').style.display = 'none'; };
-$('btnPickMove').onclick = () => { $('moveFind').style.display = 'flex'; $('moveInput').focus(); };
-$('btnFindMove').onclick = () => showFolderPicker('moveInput', 'moveList', setMoveFolder);
-$('btnMoveFromTree').onclick = () => { const f = curFolder(); if (f) setMoveFolder(f); };
+$('btnPickMove').onclick = async () => { const f = await pickMoveDest(); if (f) setMoveFolder(f); };
 
 $('btnSearch').onclick = doSearch;
 $('btnReset').onclick = () => {
@@ -1745,9 +1933,12 @@ $('btnBulkUsage').onclick = async () => {
 };
 $('btnMove').onclick = async () => {
   if (!selected.size) return status('ファイルを選んでください', 'err');
-  if (!moveFolder) return status('先に「移動先を選ぶ」で移動先フォルダを決めてください（左のツリーへドラッグでも移動できます）', 'err');
+  if (!moveFolder || !accounts.has(moveFolder.email)) {
+    const f = await pickMoveDest(); if (!f) return; setMoveFolder(f);
+  }
   const ids = [...selected], dest = moveFolder;
-  if (await confirmDlg('一括移動', `${ids.length}件を「${esc(dest.name)}」へ移動します。`, ids.map(nameOfId))) runBulk('move', ids, dest.id, '移動', dest);
+  if (dest.email !== current) return crossTransfer(ids, dest);
+  if (await confirmDlg('一括移動', `${ids.length}件を「${esc(dest.path || dest.name)}」へ移動します。`, ids.map(nameOfId))) runBulk('move', ids, dest.id, '移動', dest);
 };
 $('btnTrash').onclick = async () => {
   if (!selected.size) return status('ファイルを選んでください', 'err');
@@ -1904,7 +2095,6 @@ $('filterBox').addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.matches('input') && e.target.id !== 'folderInput' && !e.isComposing) { e.preventDefault(); if (!busy) doSearch(); }
 });
 $('folderInput').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('btnFindFolder').click(); } });
-$('moveInput').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('btnFindMove').click(); } });
 $('newTag').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('btnAddTag').click(); } });
 (function applyUi() {
   const u = loadUi();
