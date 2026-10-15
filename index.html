@@ -566,7 +566,7 @@
 
 <script>
 'use strict';
-const APP_VERSION = 'v1.4.1';
+const APP_VERSION = 'v1.4.2';
 const APP_DATE = '2026-10-15';
 const $ = id => document.getElementById(id);
 const SCOPE = 'https://www.googleapis.com/auth/drive';
@@ -2258,7 +2258,16 @@ async function gmailToken(email, minLeftMs) {
   const p = (async () => {
     const r = await requestToken({ prompt: a.gtoken ? '' : 'consent', hint: email }, GMAIL_SCOPE);
     const res = await fetch(GAPI + '/profile', { headers: { Authorization: 'Bearer ' + r.access_token } });
-    if (!res.ok) throw new Error(`Gmailに接続できません(${res.status})。Google CloudでGmail APIを有効にし、「データアクセス」にgmail.modifyを追加したか確認してください`);
+    if (!res.ok) {
+      let gmsg = ''; try { const j = await res.json(); gmsg = (j.error && j.error.message) || ''; } catch (e) {}
+      const hint = /has not been used|is disabled|SERVICE_DISABLED/i.test(gmsg)
+        ? 'Google Cloud（プロジェクト drive-EX）の「APIとサービス」→「ライブラリ」で「Gmail API」を検索して「有効にする」を押してください。押してから数分かかることがあります。'
+        : /insufficient|scope/i.test(gmsg)
+          ? 'Gmailの権限が許可されていません。「Google Auth Platform」→「データアクセス」に gmail.modify を追加し、許可画面でGmailにチェックを入れてください。'
+          : 'Google CloudでGmail APIを有効にし、「データアクセス」に gmail.modify を追加したか確認してください。';
+      a.gtoken = null;
+      throw new Error(`Gmailに接続できません(${res.status})。${hint}` + (gmsg ? `（Googleからの理由：${gmsg.slice(0, 160)}）` : ''));
+    }
     const prof = await res.json();
     if (String(prof.emailAddress).toLowerCase() !== email.toLowerCase()) throw new Error(`${email} ではなく ${prof.emailAddress} で許可されました。もう一度 ${email} を選んでください`);
     a.gtoken = r.access_token; a.gexp = Date.now() + (Number(r.expires_in) || 3600) * 1000;
@@ -2538,7 +2547,8 @@ $('gTrash').onclick = async () => {
   const ids = [...gm.selected];
   if (!ids.length) return status('メールを選んでください', 'err');
   const names = ids.map(id => (gm.view.find(m => m.id === id) || {}).subject).filter(Boolean);
-  const per = gPeriod && $('gPeriodTxt').textContent ? `<br>期間：<strong>${esc($('gPeriodTxt').textContent)}</strong>` + ($('gExStar').checked ? '（スター付き・重要は除く）' : '') : '';
+  const f = $('gFrom').value, t = $('gTo').value;
+  const per = (f || t) ? `<br>受信日：<strong>${f ? f.replace(/-/g, '/') : '最初'} ～ ${t ? t.replace(/-/g, '/') : '最新'}</strong>` + ($('gExStar').checked ? '（スター付き・重要は除く）' : '') + ($('gq').value.trim() ? `／条件：${esc($('gq').value.trim())}` : '') : '';
   if (!await confirmDlg('Gmailのゴミ箱へ', `<strong>${ids.length}件</strong>のメールをGmailのゴミ箱へ移します（アカウント：${esc(current)}）。${per}<br>30日以内ならGmailのゴミ箱か、操作履歴の「元に戻す」で戻せます。`, names.slice(0, 30).concat(ids.length > names.length ? [`…ほか（全${ids.length}件）`] : []))) return;
   try { await gmailToken(current, 20 * 60 * 1000); } catch (e) { return status('Gmailのログインができませんでした：' + esc(e.message), 'err'); }
   setBusy(true); jobCancel = false; $('busyCancel').textContent = '中止'; $('busyCancel').style.display = '';
@@ -2610,10 +2620,17 @@ $('gSrc').onchange = async e => {
   if (gPeriod) { applyGPeriod(); $('gSearch').click(); }
 };
 $('gDest').onchange = () => lsSet('driveSeiri.gDest', $('gDest').value);
+// 受信日を手で変えたら、その日付を期間として使う
+['gFrom', 'gTo'].forEach(id => $(id).addEventListener('change', () => {
+  gPeriod = null; showPeriod();
+  const f = $('gFrom').value, t = $('gTo').value;
+  if (f || t) $('gPeriodTxt').textContent = `${f ? f.replace(/-/g, '/') : '最初'} ～ ${t ? t.replace(/-/g, '/') : '最新'}（手入力）`;
+}));
+function hasPeriod() { return !!gPeriod || !!$('gFrom').value || !!$('gTo').value; }
 // 期間を指定して、検索結果をすべて選んで移動まで一度に
 $('gBatch').onclick = async () => {
   if (busy) return;
-  if (!gPeriod) return status('先に年と「通年」「第1四半期」などを選んでください', 'err');
+  if (!hasPeriod()) return status('先に年と「通年」「第1四半期」などを選ぶか、受信日を入れてください', 'err');
   if (!$('gDest').value) return status('移動先のアカウントを「アカウントを追加」でログインしてから選んでください', 'err');
   gm.query = gQuery(); gm.pageTokens = [null];
   const ok = await gSelectAllIds();
@@ -2625,7 +2642,7 @@ $('gBatch').onclick = async () => {
 // 期間を指定して、検索結果をすべて選んでゴミ箱へ
 $('gBatchTrash').onclick = async () => {
   if (busy) return;
-  if (!gPeriod) return status('先に年と「通年」「この年以前すべて」などを選んでください', 'err');
+  if (!hasPeriod()) return status('先に年と「通年」「この年以前すべて」などを選ぶか、受信日を入れてください', 'err');
   gm.query = gQuery(); gm.pageTokens = [null];
   const ok = await gSelectAllIds();
   if (!ok) return;
