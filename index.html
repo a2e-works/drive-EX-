@@ -562,7 +562,7 @@
     <label class="h">対象</label><div><strong id="bkSrc"></strong></div>
     <label class="h">残す期間</label>
     <div class="row"><select id="bkKeep"><option value="6">直近6か月</option><option value="12" selected>直近1年</option><option value="24">直近2年</option></select>
-      <span class="note">これより古いものを移します（<span id="bkCut"></span> より前）</span></div>
+      <span class="note">四半期単位で、<strong><span id="bkCut"></span> まで</strong>のものを移します</span></div>
     <label class="h"><input type="checkbox" id="bkDoMail" checked> Gmail</label>
     <div><div class="row"><button class="sm" id="bkPickDir">Thunderbirdのフォルダを選ぶ</button><span id="bkDirName" class="note">未設定</span></div>
       <span class="note">Thunderbirdの「Feeds」フォルダ（Gmail_BK と同じ場所）を選びます。終わったらThunderbirdを起動し直すと、新しいフォルダとして表示されます。</span></div>
@@ -592,7 +592,7 @@
 
 <script>
 'use strict';
-const APP_VERSION = 'v1.5.0';
+const APP_VERSION = 'v1.5.1';
 const APP_DATE = '2026-10-16';
 const $ = id => document.getElementById(id);
 const SCOPE = 'https://www.googleapis.com/auth/drive';
@@ -2756,10 +2756,12 @@ function idbOpen() {
 async function idbGet(k) { const db = await idbOpen(); return new Promise((res, rej) => { const t = db.transaction('kv').objectStore('kv').get(k); t.onsuccess = () => res(t.result); t.onerror = () => rej(t.error); }); }
 async function idbSet(k, v) { const db = await idbOpen(); return new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite').objectStore('kv').put(v, k); t.onsuccess = () => res(); t.onerror = () => rej(t.error); }); }
 
-function bkCutoff(months) { const d = new Date(); d.setHours(0, 0, 0, 0); d.setMonth(d.getMonth() - months); return d; }
+// 残す期間をさかのぼった日を含む四半期（1・4・7・10月始まり）の初日。これより前（＝前の四半期末まで）が対象
+function bkCutoff(months) { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(1); d.setMonth(d.getMonth() - months); d.setMonth(Math.floor(d.getMonth() / 3) * 3); return d; }
+function bkLastDay(cut) { const d = new Date(cut); d.setDate(d.getDate() - 1); return d; }
 function ymdSlash(d) { return ymdStr(d).replace(/-/g, '/'); }
 function bkMsg(m) { $('bkMsg').innerHTML = m || ''; }
-function bkShowCut() { $('bkCut').textContent = ymdSlash(bkCutoff(Number($('bkKeep').value))); }
+function bkShowCut() { $('bkCut').textContent = ymdSlash(bkLastDay(bkCutoff(Number($('bkKeep').value)))); }
 function bkSaveUI() {
   const c = bkCfg(current);
   Object.assign(c, { keep: Number($('bkKeep').value), dest: $('bkDest').value, doMail: $('bkDoMail').checked, doDrive: $('bkDoDrive').checked });
@@ -2893,11 +2895,11 @@ $('bkRun').onclick = async () => {
   driveFiles.forEach(f => { f.usage = (f.properties && f.properties[USAGE_KEY]) || ''; });
   if (!mailIds.length && !driveFiles.length) {
     Object.assign(c, { last: new Date().toISOString(), lastNote: '移すものなし' }); bkSave(src, c);
-    return status(`${ymdSlash(cut)} より前のメール・ファイルはありませんでした。`, 'okc');
+    return status(`${ymdSlash(bkLastDay(cut))} までのメール・ファイルはありませんでした。`, 'okc');
   }
   const mb = driveFiles.reduce((s, f) => s + Number(f.size || 0), 0) / 1048576;
   const ok = await confirmDlg('定期バックアップ',
-    `<strong>${ymdSlash(cut)} より前</strong>のものを移します（アカウント：${esc(src)}）。<br>` +
+    `<strong>${ymdSlash(bkLastDay(cut))} まで</strong>のものを移します（アカウント：${esc(src)}）。<br>` +
     (doMail ? `・Gmail <strong>${mailIds.length}件</strong> → PCの「${esc(dir.name)}」フォルダに保存してから、Gmailのゴミ箱へ<br>` : '') +
     (doDrive ? `・ドライブ <strong>${driveFiles.length}件</strong>（約${Math.round(mb)}MB）→ ${esc(c.dest)} へ移動` + (skipped.length ? `（フォームなど送れない${skipped.length}件は残します）` : '') + '<br>' : '') +
     '<span class="note">先にThunderbirdを閉じておいてください。スター・重要マークの付いたメールも含めて移します。</span>',
