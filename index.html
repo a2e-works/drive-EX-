@@ -565,7 +565,7 @@
       <span class="note">四半期単位で、<strong><span id="bkCut"></span> まで</strong>のものを移します</span></div>
     <label class="h"><input type="checkbox" id="bkDoMail" checked> Gmail</label>
     <div><div class="row"><button class="sm" id="bkPickDir">Thunderbirdのフォルダを選ぶ</button><span id="bkDirName" class="note">未設定</span></div>
-      <span class="note">Thunderbirdの「Feeds」フォルダ（Gmail_BK と同じ場所）を選びます。終わったらThunderbirdを起動し直すと、新しいフォルダとして表示されます。</span></div>
+      <span class="note">Thunderbirdのメッセージの保存先フォルダを選びます。初期の場所（AppData の中）はブラウザが開けないので、Thunderbirdの「アカウント設定」→「メッセージの保存先」を <code>C:\work\ThunderbirdBK</code> などに変えてから選んでください。終わったらThunderbirdを起動し直すと、新しいフォルダとして表示されます。</span></div>
     <label class="h"><input type="checkbox" id="bkDoDrive" checked> ドライブ</label>
     <div><div class="row">送り先 <select id="bkDest"></select></div>
       <span class="note">送り先のマイドライブに「定期バックアップ（元：アカウント名）」フォルダを作って移します。作成日・更新日はそのまま。送り先も先に「アカウントを追加」でログインしておきます。</span></div>
@@ -592,7 +592,7 @@
 
 <script>
 'use strict';
-const APP_VERSION = 'v1.5.1';
+const APP_VERSION = 'v1.5.2';
 const APP_DATE = '2026-10-16';
 const $ = id => document.getElementById(id);
 const SCOPE = 'https://www.googleapis.com/auth/drive';
