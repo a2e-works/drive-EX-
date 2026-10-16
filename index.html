@@ -566,7 +566,7 @@
 
 <script>
 'use strict';
-const APP_VERSION = 'v1.4.4';
+const APP_VERSION = 'v1.4.5';
 const APP_DATE = '2026-10-16';
 const $ = id => document.getElementById(id);
 const SCOPE = 'https://www.googleapis.com/auth/drive';
@@ -2282,7 +2282,14 @@ async function gfetch(email, url, init) {
   init = init || {};
   for (let attempt = 0; ; attempt++) {
     const tok = await gmailToken(email);
-    const res = await fetch(url, Object.assign({}, init, { headers: Object.assign({ Authorization: 'Bearer ' + tok }, init.headers || {}) }));
+    let res;
+    try {
+      res = await fetch(url, Object.assign({}, init, { headers: Object.assign({ Authorization: 'Bearer ' + tok }, init.headers || {}) }));
+    } catch (e) {
+      // 通信が一瞬切れた（Failed to fetch）ときは、少し待ってやり直す。打ち切り（タイムアウト）はやり直さない
+      if (e.name === 'AbortError' || e.name === 'TimeoutError' || attempt >= 5) throw new Error(e.name === 'TypeError' ? '通信できませんでした（ネット接続を確認してください）' : e.message);
+      await sleep(2000 * Math.pow(2, attempt)); continue;
+    }
     if (res.ok) return res;
     let msg = '';
     try { const j = await res.clone().json(); msg = (j.error && j.error.message) || ''; } catch (e) {}
