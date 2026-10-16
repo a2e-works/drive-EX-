@@ -1940,16 +1940,18 @@ function loadHistory() {
   renderHistory();
 }
 function saveHistory() { if (current) lsSet(LS_HIST + current, JSON.stringify(opHist.slice(0, HIST_MAX))); }
-function recordHistory(label, ops) {
+// これより多い件数は履歴に1件ずつ残さない（ブラウザの保存容量を超えるため）
+const HIST_BIG = 5000;
+function recordHistory(label, ops, opts) {
   if (!current || !ops || !ops.length) return;
-  opHist.unshift({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t: new Date().toISOString(), label, ops, undone: false });
+  opHist.unshift(Object.assign({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t: new Date().toISOString(), label, ops, undone: false }, opts || {}));
   opHist = opHist.slice(0, HIST_MAX);
   saveHistory(); renderHistory();
 }
 function renderHistory() {
   $('hist').innerHTML = opHist.length ? opHist.map(h => `
-    <div class="litem"><span class="n hsel" data-hs="${esc(h.id)}" title="${esc(h.label)}（クリックで対象のファイルを一覧で選択）">${esc(fmtDT(h.t).slice(5))}　${esc(h.label)}　${h.ops.length}件</span>
-    ${h.undone ? '<span class="s">戻し済み</span>' : `<button class="sm" data-h="${esc(h.id)}">元に戻す</button>`}</div>`).join('')
+    <div class="litem"><span class="n hsel" data-hs="${esc(h.id)}" title="${esc(h.label)}（クリックで対象のファイルを一覧で選択）">${esc(fmtDT(h.t).slice(5))}　${esc(h.label)}　${h.count || h.ops.length}件</span>
+    ${h.noUndo ? '<span class="s" title="件数が多いため、Gmailのゴミ箱から戻してください">ゴミ箱から</span>' : h.undone ? '<span class="s">戻し済み</span>' : `<button class="sm" data-h="${esc(h.id)}">元に戻す</button>`}</div>`).join('')
     : '<div class="note" style="padding:6px">まだありません</div>';
 }
 function undoNote(h) {
@@ -1967,7 +1969,7 @@ function undoNote(h) {
 }
 async function undoHistory(hid) {
   const h = opHist.find(x => x.id === hid);
-  if (!h || h.undone || busy) return;
+  if (!h || h.undone || h.noUndo || busy) return;
   const later = opHist.slice(0, opHist.indexOf(h)).filter(x => !x.undone).length;
   const warn = later ? `<br><span class="err">この後に${later}回の操作があります。同じファイルを操作していた場合は、その結果も上書きされます。</span>` : '';
   if (!await confirmDlg('元に戻す', `「${esc(h.label)}」（${h.ops.length}件）を元に戻します。${undoNote(h)}${warn}`, h.ops.map(o => o.name))) return;
@@ -2553,15 +2555,27 @@ $('gTrash').onclick = async () => {
   try { await gmailToken(current, 20 * 60 * 1000); } catch (e) { return status('Gmailのログインができませんでした：' + esc(e.message), 'err'); }
   setBusy(true); jobCancel = false; $('busyCancel').textContent = '中止'; $('busyCancel').style.display = '';
   const ops = [], fails = []; let n = 0;
-  await pool(ids, 6, async id => {
-    if (jobCancel) return;
+  const nameOf = id => ((gm.view.find(m => m.id === id) || {}).subject || 'メール').slice(0, 80);
+  // 1000件ずつまとめて処理（1件ずつより大幅に速い）。失敗したまとまりだけ1件ずつやり直す
+  for (let i = 0; i < ids.length && !jobCancel; i += 1000) {
+    const ch = ids.slice(i, i + 1000);
     await gCheckpoint([current]);
-    const name = (gm.view.find(m => m.id === id) || {}).subject || 'メール';
-    try { await gfetch(current, `${GAPI}/messages/${id}/trash`, { method: 'POST' }); ops.push({ id, name: name.slice(0, 80), kind: 'gtrash' }); }
-    catch (e) { fails.push({ name, error: e.message }); }
-    n++; status(`Gmailのゴミ箱へ：${n} / ${ids.length} 件…`);
-  });
-  recordHistory('Gmail ゴミ箱へ', ops);
+    try {
+      await gfetch(current, `${GAPI}/messages/batchModify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ch, addLabelIds: ['TRASH'] }) });
+      ch.forEach(id => ops.push({ id, name: nameOf(id), kind: 'gtrash' }));
+      n += ch.length;
+    } catch (e0) {
+      await pool(ch, 6, async id => {
+        if (jobCancel) return;
+        try { await gfetch(current, `${GAPI}/messages/${id}/trash`, { method: 'POST' }); ops.push({ id, name: nameOf(id), kind: 'gtrash' }); }
+        catch (e) { fails.push({ name: nameOf(id), error: e.message }); }
+        n++;
+      });
+    }
+    status(`Gmailのゴミ箱へ：${n} / ${ids.length} 件…`);
+  }
+  if (ops.length > HIST_BIG) recordHistory('Gmail ゴミ箱へ', [{ name: `${ops.length}件（Gmailのゴミ箱から戻せます）`, kind: 'gtrash' }], { count: ops.length, noUndo: true });
+  else recordHistory('Gmail ゴミ箱へ', ops);
   jobCancel = false; gm.selected.clear(); setBusy(false);
   let m = `Gmail ゴミ箱へ：${ops.length}件完了`;
   if (fails.length) m += `<br><span class="err">${fails.length}件失敗</span><ul class="err">` + fails.slice(0, 10).map(f => `<li>${esc(f.name)}：${esc(f.error)}</li>`).join('') + '</ul>';
