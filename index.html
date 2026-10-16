@@ -210,6 +210,7 @@
   <h1>Googleドライブ整理ツール <span id="appVer" class="ver"></span></h1>
   <div class="seg" role="tablist"><button id="vDrive" class="on">📁 ドライブ</button><button id="vGmail">✉ Gmail</button></div>
   <button class="pri" id="btnCam" title="スマホのカメラで撮って、ツリーで選んだフォルダへアップロード">📷 撮影してアップ</button>
+  <button id="btnBk" title="古いメールをThunderbirdへ、古いファイルを別アカウントへまとめて移す">🗂 定期バックアップ</button>
   <span class="sp"></span>
   <div id="quota" style="display:none" title="">
     <div class="qbar"><span class="q-drv"></span><span class="q-tr"></span><span class="q-oth"></span></div>
@@ -554,6 +555,31 @@
   </div>
 </dialog>
 
+<dialog id="bkDlg" style="max-width:640px">
+  <h3 style="margin-top:0">定期バックアップ</h3>
+  <p class="note" style="margin-top:0">古いメールはPCのThunderbirdへ保存してGmailから消し、古いファイルは別アカウントのドライブへ移します。四半期ごとに1回、このボタンを押すだけで済みます。</p>
+  <div class="grid">
+    <label class="h">対象</label><div><strong id="bkSrc"></strong></div>
+    <label class="h">残す期間</label>
+    <div class="row"><select id="bkKeep"><option value="6">直近6か月</option><option value="12" selected>直近1年</option><option value="24">直近2年</option></select>
+      <span class="note">これより古いものを移します（<span id="bkCut"></span> より前）</span></div>
+    <label class="h"><input type="checkbox" id="bkDoMail" checked> Gmail</label>
+    <div><div class="row"><button class="sm" id="bkPickDir">Thunderbirdのフォルダを選ぶ</button><span id="bkDirName" class="note">未設定</span></div>
+      <span class="note">Thunderbirdの「Feeds」フォルダ（Gmail_BK と同じ場所）を選びます。終わったらThunderbirdを起動し直すと、新しいフォルダとして表示されます。</span></div>
+    <label class="h"><input type="checkbox" id="bkDoDrive" checked> ドライブ</label>
+    <div><div class="row">送り先 <select id="bkDest"></select></div>
+      <span class="note">送り先のマイドライブに「定期バックアップ（元：アカウント名）」フォルダを作って移します。作成日・更新日はそのまま。送り先も先に「アカウントを追加」でログインしておきます。</span></div>
+    <label class="h">前回</label><div id="bkLast" class="note">まだ実行していません</div>
+    <label class="h">お知らせ</label>
+    <div><button class="sm" id="bkCal">Googleカレンダーに3か月ごとの予定を入れる</button></div>
+  </div>
+  <p id="bkMsg" class="err" style="margin:8px 0 0"></p>
+  <div class="row" style="justify-content:flex-end;margin-top:12px">
+    <button id="bkClose">閉じる</button>
+    <button class="pri" id="bkRun">今すぐ実行</button>
+  </div>
+</dialog>
+
 <dialog id="dlg">
   <h3 id="dlgTitle"></h3>
   <p id="dlgMsg"></p>
@@ -566,7 +592,7 @@
 
 <script>
 'use strict';
-const APP_VERSION = 'v1.4.5';
+const APP_VERSION = 'v1.5.0';
 const APP_DATE = '2026-10-16';
 const $ = id => document.getElementById(id);
 const SCOPE = 'https://www.googleapis.com/auth/drive';
@@ -780,6 +806,7 @@ async function switchAccount(email) {
   if (email && !acctTree(email).rootId) {
     try { await loadTreeRoot(email); } catch (e) { status('フォルダ一覧の読み込みに失敗：' + esc(e.message), 'err'); }
   }
+  if (email && !$('status').textContent) bkReminder(email);
 }
 
 function renderAccounts() {
@@ -790,6 +817,7 @@ function renderAccounts() {
   $('main').classList.toggle('locked', !current);
   $('btnAddAcct').textContent = accounts.size ? 'アカウントを追加' : 'Googleでログイン';
   $('btnCam').disabled = !current;
+  $('btnBk').disabled = !current;
 }
 
 /* ---------- Drive API ---------- */
@@ -1089,6 +1117,36 @@ async function uploadBlob(blob, meta, email) {
   }, email);
   try { return (await res.json()).id || ''; } catch (e) { return ''; }
 }
+// 1ファイルを別アカウントへ作り直す（move=trueなら元をゴミ箱へ）。opsに履歴用の記録を足す
+async function xferOne(f, src, destEmail, destFolderId, move, ops) {
+  if (f.size != null && Number(f.size) > MAX_XFER) throw new Error('サイズが大きすぎます（1GBまで）');
+  const meta = { name: f.name, parents: [destFolderId] };
+  // 作成日・更新日を元のファイルと同じにする
+  if (f.createdTime) meta.createdTime = f.createdTime;
+  if (f.modifiedTime) meta.modifiedTime = f.modifiedTime;
+  if (f.usage) meta.properties = { [USAGE_KEY]: f.usage };
+  let blob;
+  if (f.mimeType.startsWith('application/vnd.google-apps.')) {
+    const ex = EXPORTS[f.mimeType];
+    if (!ex) throw new Error('Googleフォーム・マイマップなどの形式は送れません');
+    const res = await authFetch(`${API}/files/${encodeURIComponent(f.id)}/export?mimeType=${encodeURIComponent(ex[0])}`, {}, src);
+    blob = new Blob([await res.blob()], { type: ex[0] });
+    if (f.mimeType === 'application/vnd.google-apps.drawing') meta.name = f.name + ex[1];
+    else meta.mimeType = f.mimeType;     // 送り先でGoogle形式に戻す
+  } else {
+    const res = await authFetch(`${API}/files/${encodeURIComponent(f.id)}?alt=media`, {}, src);
+    blob = await res.blob();
+    if (!blob.type && f.mimeType) blob = new Blob([blob], { type: f.mimeType });
+  }
+  const newId = await uploadBlob(blob, meta, destEmail);
+  const op = { id: f.id, name: f.name, kind: 'xfer', newId, destEmail, removed: false };
+  if (ops) ops.push(op);
+  if (move) {
+    try { await api('/files/' + encodeURIComponent(f.id), { fields: 'id' }, { method: 'PATCH', body: JSON.stringify({ trashed: true }) }, src); op.removed = true; }
+    catch (e) { throw new Error('送り先にはコピーしましたが、元をゴミ箱へ移せませんでした：' + e.message); }
+  }
+  return op;
+}
 async function crossTransfer(ids, dest) {
   const src = current;
   const where = `${esc(dest.email)} の「${esc(dest.path || dest.name)}」`;
@@ -1108,32 +1166,7 @@ async function crossTransfer(ids, dest) {
     const f = files.find(x => x.id === id);
     try {
       if (!f) throw new Error('一覧にありません');
-      if (f.size != null && f.size > MAX_XFER) throw new Error('サイズが大きすぎます（1GBまで）');
-      const meta = { name: f.name, parents: [dest.id] };
-      // 作成日・更新日を元のファイルと同じにする
-      if (f.createdTime) meta.createdTime = f.createdTime;
-      if (f.modifiedTime) meta.modifiedTime = f.modifiedTime;
-      if (f.usage) meta.properties = { [USAGE_KEY]: f.usage };
-      let blob;
-      if (f.mimeType.startsWith('application/vnd.google-apps.')) {
-        const ex = EXPORTS[f.mimeType];
-        if (!ex) throw new Error('Googleフォーム・マイマップなどの形式は送れません');
-        const res = await authFetch(`${API}/files/${encodeURIComponent(f.id)}/export?mimeType=${encodeURIComponent(ex[0])}`, {}, src);
-        blob = new Blob([await res.blob()], { type: ex[0] });
-        if (f.mimeType === 'application/vnd.google-apps.drawing') meta.name = f.name + ex[1];
-        else meta.mimeType = f.mimeType;     // 送り先でGoogle形式に戻す
-      } else {
-        const res = await authFetch(`${API}/files/${encodeURIComponent(f.id)}?alt=media`, {}, src);
-        blob = await res.blob();
-        if (!blob.type && f.mimeType) blob = new Blob([blob], { type: f.mimeType });
-      }
-      const newId = await uploadBlob(blob, meta, dest.email);
-      const op = { id: f.id, name: f.name, kind: 'xfer', newId, destEmail: dest.email, removed: false };
-      ops.push(op);
-      if (mode === 'move') {
-        try { await api('/files/' + encodeURIComponent(f.id), { fields: 'id' }, { method: 'PATCH', body: JSON.stringify({ trashed: true }) }, src); op.removed = true; }
-        catch (e) { throw new Error('送り先にはコピーしましたが、元をゴミ箱へ移せませんでした：' + e.message); }
-      }
+      await xferOne(f, src, dest.email, dest.id, mode === 'move', ops);
       done.add(id);
     } catch (e) { fails.push({ id, error: e.message }); }
     n++; status(`${label}：${n} / ${ids.length} 件…`);
@@ -1762,10 +1795,10 @@ function setBusy(b) {
   document.body.classList.toggle('busy', b);
   $('busyBar').classList.toggle('on', b);
   if (b) busyProgress($('status').textContent || '処理中…');
-  ['btnBulkUsage','btnMove','btnTrash','btnSearch','btnRename','btnDup','btnHistClear','btnCam','btnCam2','btnToPcCopy','btnToPcMove','btnLocalUp','acctSel','btnAddAcct','btnLogout','btnRefresh','btnPickMove','btnCsv','pgFirst','pgPrev','pgNext','pgLast','pgSize','chkAll','vDrive','vGmail','gSearch','gSelAll','gChkAll','gMove','gCopy','gTrash','gPrev','gNext','gPs','gDest','gSrc','gYear','gBatch','gBatchTrash','dYear','dQ'].forEach(id => $(id).disabled = b);
+  ['btnBk','btnBulkUsage','btnMove','btnTrash','btnSearch','btnRename','btnDup','btnHistClear','btnCam','btnCam2','btnToPcCopy','btnToPcMove','btnLocalUp','acctSel','btnAddAcct','btnLogout','btnRefresh','btnPickMove','btnCsv','pgFirst','pgPrev','pgNext','pgLast','pgSize','chkAll','vDrive','vGmail','gSearch','gSelAll','gChkAll','gMove','gCopy','gTrash','gPrev','gNext','gPs','gDest','gSrc','gYear','gBatch','gBatchTrash','dYear','dQ'].forEach(id => $(id).disabled = b);
   document.querySelectorAll('#gQ button').forEach(x => { x.disabled = b; });
   if (!b) { $('busyCancel').style.display = 'none'; $('busyResume').style.display = 'none'; }
-  if (!b) { $('btnLogout').disabled = !current; $('btnCam').disabled = !current; }
+  if (!b) { $('btnLogout').disabled = !current; $('btnCam').disabled = !current; $('btnBk').disabled = !current; }
 }
 function finishBulk(label, okCount, fails) {
   loadQuota();
@@ -2419,8 +2452,10 @@ async function gSelectAllIds() {
 
 // 長い処理の途中でログイン期限が近づいたら、一時停止してボタンで更新してもらう
 let pausePromise = null;
-async function gCheckpoint(emails) {
-  const near = emails.filter(e => { const a = accounts.get(e); return !a.gexp || a.gexp - Date.now() < 4 * 60 * 1000; });
+async function gCheckpoint(emails) { return tokCheckpoint(emails.map(e => ({ email: e, g: true }))); }
+// reqs：[{email, g}]（g=trueはGmailのログイン、falseはドライブのログイン）
+async function tokCheckpoint(reqs) {
+  const near = reqs.filter(r => { const a = accounts.get(r.email); const exp = r.g ? a.gexp : a.exp; return !exp || exp - Date.now() < 4 * 60 * 1000; });
   if (!near.length) return;
   if (!pausePromise) {
     pausePromise = new Promise(resolve => {
@@ -2428,11 +2463,13 @@ async function gCheckpoint(emails) {
       const btn = $('busyResume');
       const next = () => {
         if (!queue.length) { btn.style.display = 'none'; pausePromise = null; resolve(); return; }
-        btn.textContent = `ログインを更新して続ける（${queue[0]}）`; btn.style.display = '';
+        btn.textContent = `ログインを更新して続ける（${queue[0].email}）`; btn.style.display = '';
         busyProgress('ログインの期限が近づいたので一時停止しています。右のボタンを押すと続きから再開します');
       };
       btn.onclick = async () => {
-        try { await gmailToken(queue[0], 55 * 60 * 1000); queue.shift(); } catch (e) { busyProgress('更新できませんでした。もう一度押してください：' + e.message); }
+        const q = queue[0];
+        try { if (q.g) await gmailToken(q.email, 55 * 60 * 1000); else await token(q.email, 55 * 60 * 1000); queue.shift(); }
+        catch (e) { busyProgress('更新できませんでした。もう一度押してください：' + e.message); }
         next();
       };
       next();
@@ -2704,6 +2741,236 @@ $('btnRefresh').onclick = async () => {
 };
 
 /* ---------- 新しい版のお知らせ ---------- */
+/* ---------- 定期バックアップ（古いメール→Thunderbird、古いファイル→別アカウント） ---------- */
+const LS_BK = 'driveSeiri.bk.';   // + メールアドレス → {keep, dest, doMail, doDrive, last, lastNote}
+function bkCfg(email) { try { return JSON.parse(lsGet(LS_BK + email) || '{}') || {}; } catch (e) { return {}; } }
+function bkSave(email, c) { lsSet(LS_BK + email, JSON.stringify(c)); }
+// 選んだフォルダの場所は、ブラウザ内のデータベースに覚えておく
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('driveSeiri', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function idbGet(k) { const db = await idbOpen(); return new Promise((res, rej) => { const t = db.transaction('kv').objectStore('kv').get(k); t.onsuccess = () => res(t.result); t.onerror = () => rej(t.error); }); }
+async function idbSet(k, v) { const db = await idbOpen(); return new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite').objectStore('kv').put(v, k); t.onsuccess = () => res(); t.onerror = () => rej(t.error); }); }
+
+function bkCutoff(months) { const d = new Date(); d.setHours(0, 0, 0, 0); d.setMonth(d.getMonth() - months); return d; }
+function ymdSlash(d) { return ymdStr(d).replace(/-/g, '/'); }
+function bkMsg(m) { $('bkMsg').innerHTML = m || ''; }
+function bkShowCut() { $('bkCut').textContent = ymdSlash(bkCutoff(Number($('bkKeep').value))); }
+function bkSaveUI() {
+  const c = bkCfg(current);
+  Object.assign(c, { keep: Number($('bkKeep').value), dest: $('bkDest').value, doMail: $('bkDoMail').checked, doDrive: $('bkDoDrive').checked });
+  bkSave(current, c);
+}
+async function bkOpen() {
+  if (!current || busy) return;
+  const c = bkCfg(current);
+  bkMsg('');
+  $('bkSrc').textContent = current;
+  $('bkKeep').value = String(c.keep || 12);
+  $('bkDoMail').checked = c.doMail !== false; $('bkDoDrive').checked = c.doDrive !== false;
+  const others = [...accounts.keys()].filter(e => e !== current);
+  $('bkDest').innerHTML = others.length
+    ? others.map(e => `<option value="${esc(e)}"${e === c.dest ? ' selected' : ''}>${esc(e)}</option>`).join('')
+    : '<option value="">（先に「アカウントを追加」で送り先にログイン）</option>';
+  $('bkLast').textContent = c.last
+    ? `${fmtDT(c.last)}（${Math.floor((Date.now() - new Date(c.last)) / 86400000)}日前）` + (c.lastNote ? '　' + c.lastNote : '')
+    : 'まだ実行していません';
+  let h = null; try { h = HAS_FS ? await idbGet('bkDir:' + current) : null; } catch (e) {}
+  $('bkDirName').textContent = h ? `「${h.name}」` : (HAS_FS ? '未設定' : 'このブラウザでは使えません（PC版のChrome・Edgeで開いてください）');
+  bkShowCut();
+  $('bkDlg').showModal();
+}
+$('btnBk').onclick = bkOpen;
+$('bkKeep').onchange = () => { bkShowCut(); bkSaveUI(); };
+['bkDest', 'bkDoMail', 'bkDoDrive'].forEach(id => { $(id).onchange = bkSaveUI; });
+$('bkClose').onclick = () => $('bkDlg').close();
+$('bkPickDir').onclick = async () => {
+  if (!HAS_FS) return;
+  try {
+    const h = await window.showDirectoryPicker({ id: 'thunderbird', mode: 'readwrite' });
+    await idbSet('bkDir:' + current, h);
+    $('bkDirName').textContent = `「${h.name}」`; bkMsg('');
+  } catch (e) { if (e.name !== 'AbortError') bkMsg('フォルダを選べませんでした：' + esc(e.message)); }
+};
+$('bkCal').onclick = () => {
+  const now = new Date(); let m = Math.floor(now.getMonth() / 3) * 3 + 3, y = now.getFullYear();
+  if (m >= 12) { m -= 12; y++; }
+  const d = `${y}${String(m + 1).padStart(2, '0')}01`;
+  const p = new URLSearchParams({
+    action: 'TEMPLATE', text: 'Google定期バックアップ（Gmail・ドライブ）',
+    dates: `${d}T090000/${d}T093000`, recur: 'RRULE:FREQ=MONTHLY;INTERVAL=3',
+    details: `1. Thunderbirdを閉じる\n2. Googleドライブ整理ツールを開いてログイン（送り先のアカウントも）\n3.「🗂 定期バックアップ」→「今すぐ実行」\n4. 終わったらGmailのゴミ箱を空にする\n${location.origin + location.pathname}`
+  });
+  window.open('https://calendar.google.com/calendar/render?' + p.toString(), '_blank');
+};
+
+// メール1通をmbox形式の1件分にする（Thunderbirdがそのまま読める形）
+function asctime(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()]} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()]} ${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())} ${d.getUTCFullYear()}`;
+}
+function mboxEntry(rawB64, internalDate) {
+  let bin = atob(rawB64.replace(/-/g, '+').replace(/_/g, '/'));
+  bin = bin.replace(/\r\n/g, '\n').replace(/^(>*From )/gm, '>$1');   // 本文中の「From 」行は区切りと間違えないよう > を付ける
+  if (!bin.endsWith('\n')) bin += '\n';
+  const s = `From - ${asctime(new Date(Number(internalDate) || Date.now()))}\n${bin}\n`;
+  const u = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i);
+  return u;
+}
+async function gTrashIds(email, ids) {
+  let ok = 0, ng = 0;
+  for (let i = 0; i < ids.length && !jobCancel; i += 1000) {
+    const ch = ids.slice(i, i + 1000);
+    await gCheckpoint([email]);
+    try {
+      await gfetch(email, `${GAPI}/messages/batchModify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ch, addLabelIds: ['TRASH'] }) });
+      ok += ch.length;
+    } catch (e0) {
+      await pool(ch, 6, async id => {
+        try { await gfetch(email, `${GAPI}/messages/${id}/trash`, { method: 'POST' }); ok++; } catch (e) { ng++; }
+      });
+    }
+    status(`Gmailのゴミ箱へ：${ok} / ${ids.length} 件…`);
+  }
+  return { ok, ng };
+}
+
+$('bkRun').onclick = async () => {
+  bkSaveUI(); bkMsg('');
+  const src = current, c = bkCfg(src);
+  const doMail = c.doMail !== false, doDrive = c.doDrive !== false;
+  if (!doMail && !doDrive) return bkMsg('Gmail・ドライブのどちらかにチェックを入れてください');
+  let dir = null;
+  if (doMail) {
+    if (!HAS_FS) return bkMsg('このブラウザではPCのフォルダに保存できません。PC版のChrome・Edgeで開いてください');
+    try { dir = await idbGet('bkDir:' + src); } catch (e) {}
+    if (!dir) return bkMsg('先に「Thunderbirdのフォルダを選ぶ」で、Thunderbirdの Feeds フォルダを選んでください');
+    try {
+      if (await dir.queryPermission({ mode: 'readwrite' }) !== 'granted' && await dir.requestPermission({ mode: 'readwrite' }) !== 'granted') return bkMsg('フォルダへの書き込みが許可されませんでした');
+    } catch (e) { return bkMsg('フォルダを開けませんでした。選び直してください：' + esc(e.message)); }
+  }
+  if (doDrive && (!c.dest || !accounts.has(c.dest))) return bkMsg('ドライブの送り先にログインしていません。「アカウントを追加」で送り先のアカウントにログインしてから、もう一度開いてください');
+  $('bkDlg').close();
+  try {
+    if (doMail) await gmailToken(src, 50 * 60 * 1000);
+    await ensureTokens([src, doDrive ? c.dest : null]);
+  } catch (e) { return status('ログインできませんでした。もう一度押してください：' + esc(e.message), 'err'); }
+
+  const cut = bkCutoff(c.keep || 12);
+  // 1) 対象を数える
+  setBusy(true); jobCancel = false; $('busyCancel').textContent = '中止'; $('busyCancel').style.display = '';
+  const mailIds = []; let driveFiles = [];
+  try {
+    if (doMail) {
+      let pt = null;
+      do {
+        const r = await gjson(src, '/messages', qsOf({ q: `before:${ymdSlash(cut)}`, maxResults: 500, pageToken: pt || '', fields: 'messages(id),nextPageToken' }));
+        (r.messages || []).forEach(m => mailIds.push(m.id));
+        pt = r.nextPageToken;
+        status(`古いメールを数えています…（${mailIds.length}件）`);
+      } while (pt && !jobCancel);
+    }
+    if (doDrive && !jobCancel) {
+      let pt = null;
+      const q = `'me' in owners and trashed = false and mimeType != '${FOLDER_MIME}' and modifiedTime < '${cut.toISOString()}'`;
+      do {
+        const r = await api('/files', { q, pageSize: 1000, pageToken: pt || '', fields: 'nextPageToken,files(id,name,mimeType,size,createdTime,modifiedTime,properties)' }, null, src);
+        (r.files || []).forEach(f => driveFiles.push(f));
+        pt = r.nextPageToken;
+        status(`古いファイルを数えています…（${driveFiles.length}件）`);
+      } while (pt && !jobCancel);
+    }
+  } catch (e) { setBusy(false); return status('数えられませんでした：' + esc(e.message), 'err'); }
+  setBusy(false);
+  if (jobCancel) { jobCancel = false; return status('中止しました'); }
+  const skipped = driveFiles.filter(f => f.mimeType.startsWith('application/vnd.google-apps.') && !EXPORTS[f.mimeType]);
+  driveFiles = driveFiles.filter(f => !skipped.includes(f));
+  driveFiles.forEach(f => { f.usage = (f.properties && f.properties[USAGE_KEY]) || ''; });
+  if (!mailIds.length && !driveFiles.length) {
+    Object.assign(c, { last: new Date().toISOString(), lastNote: '移すものなし' }); bkSave(src, c);
+    return status(`${ymdSlash(cut)} より前のメール・ファイルはありませんでした。`, 'okc');
+  }
+  const mb = driveFiles.reduce((s, f) => s + Number(f.size || 0), 0) / 1048576;
+  const ok = await confirmDlg('定期バックアップ',
+    `<strong>${ymdSlash(cut)} より前</strong>のものを移します（アカウント：${esc(src)}）。<br>` +
+    (doMail ? `・Gmail <strong>${mailIds.length}件</strong> → PCの「${esc(dir.name)}」フォルダに保存してから、Gmailのゴミ箱へ<br>` : '') +
+    (doDrive ? `・ドライブ <strong>${driveFiles.length}件</strong>（約${Math.round(mb)}MB）→ ${esc(c.dest)} へ移動` + (skipped.length ? `（フォームなど送れない${skipped.length}件は残します）` : '') + '<br>' : '') +
+    '<span class="note">先にThunderbirdを閉じておいてください。スター・重要マークの付いたメールも含めて移します。</span>',
+    driveFiles.map(f => f.name));
+  if (!ok) return;
+  try {
+    if (doMail) await gmailToken(src, 50 * 60 * 1000);
+    await ensureTokens([src, doDrive ? c.dest : null]);
+  } catch (e) { return status('ログインできませんでした。もう一度押してください：' + esc(e.message), 'err'); }
+
+  setBusy(true); jobCancel = false; $('busyCancel').textContent = '中止'; $('busyCancel').style.display = '';
+  const report = [];
+  try {
+    // 2) メール：mboxに書き出してからゴミ箱へ（書けたものだけ）
+    if (doMail && mailIds.length) {
+      const base = `Gmail_${ymdStr(new Date())}`;
+      let fname = base;
+      for (let i = 2; i < 100; i++) { try { await dir.getFileHandle(fname); fname = `${base}_${i}`; } catch (e) { break; } }
+      const fh = await dir.getFileHandle(fname, { create: true });
+      const w = await fh.createWritable();
+      const saved = []; let wq = Promise.resolve(), n = 0, mfail = 0;
+      try {
+        await pool(mailIds, 6, async id => {
+          if (jobCancel) return;
+          await gCheckpoint([src]);
+          try {
+            const m = await gjson(src, `/messages/${id}`, qsOf({ format: 'raw', fields: 'raw,internalDate' }));
+            const bytes = mboxEntry(m.raw, m.internalDate);
+            wq = wq.then(() => w.write(bytes));
+            await wq;
+            saved.push(id);
+          } catch (e) { mfail++; }
+          n++; if (n % 10 === 0 || n === mailIds.length) status(`メールをPCに保存中：${n} / ${mailIds.length} 件…`);
+        });
+      } finally { try { await wq; } catch (e) {} await w.close(); }
+      const t = saved.length ? await gTrashIds(src, saved) : { ok: 0, ng: 0 };
+      report.push(`Gmail：${t.ok}件をPCの「${esc(dir.name)}\\${esc(fname)}」に保存してゴミ箱へ` + (mfail + t.ng ? `（${mfail + t.ng}件はGmailに残っています）` : ''));
+    }
+    // 3) ドライブ：送り先の「定期バックアップ（元：…）」フォルダへ移動
+    if (doDrive && driveFiles.length && !jobCancel) {
+      const fname = `定期バックアップ（元：${src}）`;
+      const r = await api('/files', { q: `name = '${qEsc(fname)}' and mimeType = '${FOLDER_MIME}' and 'root' in parents and trashed = false`, fields: 'files(id)', pageSize: 1 }, null, c.dest);
+      const folderId = (r.files && r.files[0]) ? r.files[0].id
+        : (await api('/files', { fields: 'id' }, { method: 'POST', body: JSON.stringify({ name: fname, mimeType: FOLDER_MIME, parents: ['root'] }) }, c.dest)).id;
+      const ops = [], dfails = []; let n = 0;
+      await pool(driveFiles, 2, async f => {
+        if (jobCancel) return;
+        await tokCheckpoint([{ email: src }, { email: c.dest }]);
+        try { await xferOne(f, src, c.dest, folderId, true, ops); } catch (e) { dfails.push({ name: f.name, error: e.message }); }
+        n++; status(`ファイルを移動中：${n} / ${driveFiles.length} 件…`);
+      });
+      if (ops.length && ops.length <= HIST_BIG) recordHistory(`定期バックアップ（→${c.dest}）`, ops);
+      report.push(`ドライブ：${ops.filter(o => o.removed).length}件を ${esc(c.dest)} の「${esc(fname)}」へ移動` +
+        (dfails.length ? `<ul class="err">` + dfails.slice(0, 10).map(f => `<li>${esc(f.name)}：${esc(f.error)}</li>`).join('') + '</ul>' : ''));
+    }
+  } catch (e) {
+    report.push(`<span class="err">途中で止まりました：${esc(e.message)}</span>`);
+  }
+  const cancelled = jobCancel; jobCancel = false;
+  setBusy(false); loadQuota();
+  Object.assign(c, { last: new Date().toISOString(), lastNote: cancelled ? '途中で中止' : '' }); bkSave(src, c);
+  status((cancelled ? '中止しました（そこまでの分は済んでいます）<br>' : '定期バックアップが終わりました。<br>') + report.join('<br>') +
+    '<br><span class="note">Gmailの容量を減らすには、Gmailで「ゴミ箱を今すぐ空にする」を押してください。Thunderbirdを起動すると、新しいフォルダとして表示されます。</span>', 'okc');
+};
+// 前回から3か月たっていたら、アカウントを開いたときに知らせる
+function bkReminder(email) {
+  const c = bkCfg(email);
+  if (!c.last) return;
+  const days = Math.floor((Date.now() - new Date(c.last)) / 86400000);
+  if (days >= 90) status(`前回の定期バックアップから${days}日たちました。 <button class="sm pri" data-act="bkopen">定期バックアップを開く</button>`);
+}
+document.addEventListener('click', e => { if (e.target.closest('[data-act=bkopen]')) bkOpen(); });
+
 async function checkNewVersion() {
   if (location.protocol === 'file:') return;
   try {
