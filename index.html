@@ -2561,7 +2561,9 @@ $('gTrash').onclick = async () => {
     const ch = ids.slice(i, i + 1000);
     await gCheckpoint([current]);
     try {
-      await gfetch(current, `${GAPI}/messages/batchModify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ch, addLabelIds: ['TRASH'] }) });
+      // 返事が来ないまま止まらないよう、90秒で打ち切って1件ずつに切り替える
+      const sig = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(90000) : undefined;
+      await gfetch(current, `${GAPI}/messages/batchModify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ch, addLabelIds: ['TRASH'] }), signal: sig });
       ch.forEach(id => ops.push({ id, name: nameOf(id), kind: 'gtrash' }));
       n += ch.length;
     } catch (e0) {
@@ -2569,7 +2571,7 @@ $('gTrash').onclick = async () => {
         if (jobCancel) return;
         try { await gfetch(current, `${GAPI}/messages/${id}/trash`, { method: 'POST' }); ops.push({ id, name: nameOf(id), kind: 'gtrash' }); }
         catch (e) { fails.push({ name: nameOf(id), error: e.message }); }
-        n++;
+        n++; if (n % 20 === 0) status(`Gmailのゴミ箱へ：${n} / ${ids.length} 件…（1件ずつ処理中）`);
       });
     }
     status(`Gmailのゴミ箱へ：${n} / ${ids.length} 件…`);
